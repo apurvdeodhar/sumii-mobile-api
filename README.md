@@ -169,6 +169,60 @@ pytest tests/unit/test_auth.py -v
 - Coverage requirements
 - Troubleshooting
 
+## 📝 Logging Configuration
+
+**Simple, centralized logging using Python's standard library** - no external dependencies.
+
+### Features
+
+- ✅ **Environment variable configuration** - All settings via `.env` file
+- ✅ **Standard Python logging** - Uses `logging.basicConfig()` (simple, maintainable)
+- ✅ **Noise suppression** - SQLAlchemy and Uvicorn logs configured appropriately
+- ✅ **Zero dependencies** - Only uses Python standard library
+
+### Configuration
+
+**Environment Variables** (`.env` file):
+```bash
+# Global log level
+LOG_LEVEL=INFO  # DEBUG, INFO, WARNING, ERROR, CRITICAL
+```
+
+### Usage
+
+**In your code** (no changes needed!):
+```python
+import logging
+logger = logging.getLogger(__name__)
+
+logger.info("This works!")
+logger.debug("Debug message")
+logger.error("Error message")
+```
+
+### Log Format
+
+```
+2025-12-13 23:38:08 | app.services.summary_service | INFO     | Summary generated successfully
+```
+
+**Format**: `%(asctime)s | %(name)-25s | %(levelname)-8s | %(message)s`
+
+### What's Suppressed
+
+- ✅ **SQLAlchemy engine logs** - CRITICAL only (suppressed)
+- ✅ **Uvicorn startup/shutdown** - WARNING and above (reduces noise)
+- ✅ **Uvicorn access logs** - INFO level (HTTP requests visible)
+- ✅ **AWS SDK logs** - WARNING and above
+
+### Implementation
+
+- **File**: `app/utils/logging_config.py` (76 lines, simple and maintainable)
+- **Initialization**: Called once in `app/main.py` at startup
+- **Configuration**: Via Pydantic Settings (`app/config.py`)
+
+**See `docs/LOGGING_FINAL.md` for detailed documentation.**
+
 ## 🧪 Current Features (Hour 0-8 Complete)
 
 - ✅ User authentication (JWT + bcrypt)
