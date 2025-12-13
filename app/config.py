@@ -36,6 +36,10 @@ class Settings(BaseSettings):
     AWS_REGION: str = "eu-central-1"
     S3_BUCKET: str = "sumii-pdfs-dev"
 
+    # Logging Configuration
+    LOG_LEVEL: str = "INFO"  # DEBUG, INFO, WARNING, ERROR, CRITICAL
+    LOG_JSON_OUTPUT: bool = False  # Enable JSON structured logging (future: not implemented yet)
+
     model_config = SettingsConfigDict(env_file=".env", case_sensitive=True)
 
 

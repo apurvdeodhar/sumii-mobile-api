@@ -12,9 +12,10 @@ from app.config import settings
 DATABASE_URL = settings.DATABASE_URL.replace("postgresql://", "postgresql+asyncpg://")
 
 # Create async engine
+# echo=False to disable SQLAlchemy's built-in logging (we use centralized logging instead)
 engine = create_async_engine(
     DATABASE_URL,
-    echo=True,  # Log SQL queries (disable in production)
+    echo=False,  # Disabled - use centralized logging config instead
     future=True,
 )
 

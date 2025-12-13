@@ -7,6 +7,10 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.v1 import auth, conversations, documents, status, summaries, websocket
+from app.utils.logging_config import setup_logging
+
+# Configure logging from environment variables (one-time setup)
+setup_logging()
 
 app = FastAPI(
     title="Sumii Mobile API",
