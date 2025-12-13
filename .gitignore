@@ -1,0 +1,127 @@
+# Sumii Backend - Git Ignore
+# Backend-specific Python/FastAPI project
+
+# ===========================
+# SECRETS (NEVER COMMIT!)
+# ===========================
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+*.crt
+
+# ===========================
+# Python / FastAPI
+# ===========================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+.venv/
+env/
+ENV/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+pip-log.txt
+pip-delete-this-directory.txt
+
+# ===========================
+# Testing / Coverage
+# ===========================
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.mypy_cache/
+.dmypy.json
+dmypy.json
+.ruff_cache/
+
+# ===========================
+# Database
+# ===========================
+*.db
+*.sqlite
+*.sqlite3
+postgres-data/
+
+# ===========================
+# OpenTofu / Terraform
+# ===========================
+infrastructure/tofu/.terraform/
+infrastructure/tofu/*.tfstate
+infrastructure/tofu/*.tfstate.*
+infrastructure/tofu/.terraform.lock.hcl
+infrastructure/tofu/terraform.tfvars
+infrastructure/tofu/crash.log
+infrastructure/tofu/.tofu/
+
+# ===========================
+# AWS
+# ===========================
+.aws/credentials
+.aws/config
+
+# ===========================
+# Docker
+# ===========================
+docker-compose.override.yml
+
+# ===========================
+# Logs
+# ===========================
+*.log
+logs/
+*.out
+
+# ===========================
+# IDEs
+# ===========================
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# ===========================
+# OS
+# ===========================
+.DS_Store
+Thumbs.db
+
+# ===========================
+# Documentation (Development Guides)
+# ===========================
+CLAUDE.md
+**/CLAUDE.md
+# Ignore root-level docs/ directory (development guides, not test docs)
+/docs/**
+
+# ===========================
+# Uppercase .md files (except README.md)
+# ===========================
+# Ignore all .md files that start with 3+ uppercase letters (e.g., TEST_STATUS.md, DATA_CONTRACT.md)
+# But keep README.md files (they start with only 2 uppercase letters)
+# Pattern matches files starting with 3+ uppercase letters: TEST_*.md, DATA_*.md, etc.
+**/[A-Z][A-Z][A-Z]*.md
+# Explicitly keep README.md files
+!**/README.md
+# Explicitly keep tests/docs/ directory (test documentation should be tracked)
+!tests/docs/**
