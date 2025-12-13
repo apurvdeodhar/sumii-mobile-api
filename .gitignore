@@ -123,5 +123,8 @@ CLAUDE.md
 **/[A-Z][A-Z][A-Z]*.md
 # Explicitly keep README.md files
 !**/README.md
-# Explicitly keep tests/docs/ directory (test documentation should be tracked)
-!tests/docs/**
+# Explicitly keep tests/docs/ directory (but only lowercase .md files)
+!tests/docs/
+!tests/docs/*.md
+# Re-ignore uppercase files in tests/docs/ (override the above)
+tests/docs/[A-Z][A-Z][A-Z]*.md
