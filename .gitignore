@@ -111,8 +111,9 @@ Thumbs.db
 # ===========================
 CLAUDE.md
 **/CLAUDE.md
-# Ignore root-level docs/ directory (development guides, not test docs)
-/docs/**
+# Ignore entire docs/ directory (development guides, not test docs)
+docs/
+/docs/
 
 # ===========================
 # Uppercase .md files (except README.md)
