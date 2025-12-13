@@ -92,7 +92,7 @@ def print_info(message: str, indent: int = 3):
 # =============================================================================
 
 
-def test_authentication():
+def _test_authentication():
     """Test user registration and login"""
     print_section("PHASE 1: Authentication Testing")
 
@@ -162,7 +162,7 @@ def test_authentication():
 # =============================================================================
 
 
-def test_conversation_crud(access_token: str):
+def _test_conversation_crud(access_token: str):
     """Test conversation CRUD endpoints"""
     print_section("PHASE 2: Conversation CRUD Testing")
 
@@ -252,7 +252,7 @@ def test_conversation_crud(access_token: str):
 # =============================================================================
 
 
-async def test_websocket_chat(conversation_id: str, access_token: str):
+async def _test_websocket_chat(conversation_id: str, access_token: str):
     """Test WebSocket connection and agent response"""
     print_section("PHASE 3: WebSocket Real-time Chat Testing")
 
@@ -329,7 +329,7 @@ async def test_websocket_chat(conversation_id: str, access_token: str):
 # =============================================================================
 
 
-def test_agents_with_library():
+def _test_agents_with_library():
     """Test that all agents are created with library and proper tools"""
     print_section("PHASE 4: Agents with Document Library Testing")
 
@@ -386,7 +386,7 @@ def test_agents_with_library():
 # =============================================================================
 
 
-def test_conversation_deletion(conversation_id: str, access_token: str):
+def _test_conversation_deletion(conversation_id: str, access_token: str):
     """Test conversation deletion (GDPR compliance)"""
     print_section("PHASE 5: Conversation Deletion (GDPR)")
 
@@ -426,19 +426,19 @@ async def run_e2e_tests():
 
     try:
         # Phase 1: Authentication
-        test_email, access_token, user_id = test_authentication()
+        test_email, access_token, user_id = _test_authentication()
 
         # Phase 2: Conversation CRUD
-        conversation_id = test_conversation_crud(access_token)
+        conversation_id = _test_conversation_crud(access_token)
 
         # Phase 3: WebSocket Chat
-        await test_websocket_chat(conversation_id, access_token)
+        await _test_websocket_chat(conversation_id, access_token)
 
         # Phase 4: Agents with Library
-        agent_ids = test_agents_with_library()
+        agent_ids = _test_agents_with_library()
 
         # Phase 5: Cleanup
-        test_conversation_deletion(conversation_id, access_token)
+        _test_conversation_deletion(conversation_id, access_token)
 
         # Final Summary
         elapsed = time.time() - start_time

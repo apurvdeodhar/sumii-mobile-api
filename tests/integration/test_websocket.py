@@ -33,37 +33,61 @@ class TestWebSocketChat:
     """Integration tests for WebSocket chat with Mistral Agents"""
 
     @pytest.fixture(autouse=True)
-    async def setup(self, client, db_session):
-        """Setup test user and conversation for each test"""
-        from app.models import Conversation, User
-        from app.utils.security import hash_password
+    async def setup(self):
+        """Setup test user and conversation for each test via API (for integration tests)"""
+        import time
 
-        # Create user directly in test database
-        user = User(email=TEST_USER["email"], hashed_password=hash_password(TEST_USER["password"]))
-        db_session.add(user)
-        await db_session.commit()
-        await db_session.refresh(user)
+        import requests
 
-        self.user_id = user.id
+        # Create user via API (against running backend)
+        unique_email = f"test-websocket-{int(time.time() * 1000)}@sumii.de"
+        test_user = {"email": unique_email, "password": TEST_USER["password"]}
 
-        # Login to get token (use async client)
-        response = await client.post("/api/v1/auth/login", json=TEST_USER)
-        assert response.status_code == 200, f"Login failed: {response.text}"
+        # Register user
+        response = requests.post(f"{BASE_URL}/api/v1/auth/register", json=test_user, timeout=10)
+        if response.status_code == 201:
+            # New user created
+            pass
+        elif response.status_code == 400:
+            # User might already exist, try login
+            pass
+        else:
+            raise Exception(f"Failed to register user: {response.status_code} - {response.text}")
 
+        # Login to get token
+        response = requests.post(f"{BASE_URL}/api/v1/auth/login", json=test_user, timeout=10)
+        assert response.status_code == 200, f"Login failed: {response.status_code} - {response.text}"
         self.token = response.json()["access_token"]
 
-        # Create conversation
-        conversation = Conversation(user_id=self.user_id, title="Test Mietrecht Conversation")
-        db_session.add(conversation)
-        await db_session.commit()
-        await db_session.refresh(conversation)
+        # Get user info from token (decode JWT to get email)
+        import jwt
 
-        self.conversation_id = str(conversation.id)
-        self.db_session = db_session
+        from app.config import settings
+
+        payload = jwt.decode(self.token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+        self.user_email = payload.get("sub")
+
+        # Create conversation via API
+        response = requests.post(
+            f"{BASE_URL}/api/v1/conversations",
+            headers={"Authorization": f"Bearer {self.token}"},
+            json={"title": "Test Mietrecht Conversation"},
+            timeout=10,
+        )
+        assert response.status_code == 201, f"Failed to create conversation: {response.status_code} - {response.text}"
+        self.conversation_id = response.json()["id"]
 
         yield
 
-        # Cleanup is handled by test database rollback
+        # Cleanup: Delete conversation and user (if API supports it)
+        try:
+            requests.delete(
+                f"{BASE_URL}/api/v1/conversations/{self.conversation_id}",
+                headers={"Authorization": f"Bearer {self.token}"},
+                timeout=10,
+            )
+        except Exception:
+            pass  # Ignore cleanup errors
 
     @pytest.mark.asyncio
     async def test_websocket_connection_with_valid_token(self):
@@ -72,7 +96,8 @@ class TestWebSocketChat:
 
         async with connect(ws_url) as websocket:
             # Connection successful if no exception raised
-            assert websocket.open
+            # Send a ping to verify connection is active
+            await websocket.ping()
             await websocket.close()
 
     @pytest.mark.asyncio
@@ -281,21 +306,23 @@ class TestWebSocketChat:
                 r.get("type") == "message_complete" for r in responses2
             ), "No message_complete received for message 2"
 
-            # Check that messages were saved to database
-            from sqlalchemy import select
+            # Check that messages were saved to database via API
+            import requests
 
-            from app.models import Message
-
-            result = await self.db_session.execute(
-                select(Message).where(Message.conversation_id == self.conversation_id)
+            response = requests.get(
+                f"{BASE_URL}/api/v1/conversations/{self.conversation_id}",
+                headers={"Authorization": f"Bearer {self.token}"},
+                timeout=10,
             )
-            messages = result.scalars().all()
+            assert response.status_code == 200, f"Failed to get conversation: {response.status_code}"
+            conversation_data = response.json()
+            messages = conversation_data.get("messages", [])
 
             # Should have at least 2 user messages + 2 assistant messages
             assert len(messages) >= 4, f"Expected at least 4 messages, got {len(messages)}"
 
-            user_messages = [m for m in messages if m.role.value == "user"]
-            assistant_messages = [m for m in messages if m.role.value == "assistant"]
+            user_messages = [m for m in messages if m.get("role") == "user"]
+            assistant_messages = [m for m in messages if m.get("role") == "assistant"]
 
             assert len(user_messages) >= 2, "Expected at least 2 user messages saved"
             assert len(assistant_messages) >= 2, "Expected at least 2 assistant messages saved"
