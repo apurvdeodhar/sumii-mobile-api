@@ -62,6 +62,14 @@ async def process_with_agents(
         current_agent_name = "router"
         full_response_parts = []
 
+        # Send agent_start event
+        agent_start_payload = {
+            "type": "agent_start",
+            "agent": current_agent_name,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+        await websocket.send_json(agent_start_payload)
+
         # Use RunContext for conversation lifecycle management
         async with RunContext(agent_id=router_id) as run_ctx:
             # Stream conversation with automatic handoffs
