@@ -76,10 +76,10 @@ class TestConversationProgress:
         )
         assert response.status_code == 201
 
-        # Login to get token
+        # Login to get token (fastapi-users uses form data)
         response = requests.post(
             f"{BASE_URL}/api/v1/auth/login",
-            json={"email": unique_email, "password": "SecurePassword123!"},
+            data={"username": unique_email, "password": "SecurePassword123!"},
         )
         assert response.status_code == 200
         self.token = response.json()["access_token"]
@@ -147,7 +147,7 @@ class TestConversationProgress:
         )
         response = requests.post(
             f"{BASE_URL}/api/v1/auth/login",
-            json={"email": other_email, "password": "SecurePassword123!"},
+            data={"username": other_email, "password": "SecurePassword123!"},
         )
         other_token = response.json()["access_token"]
         other_headers = {"Authorization": f"Bearer {other_token}"}

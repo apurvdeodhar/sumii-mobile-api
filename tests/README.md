@@ -440,23 +440,23 @@ async def test_login(self, async_client):
 ### Mocking External Dependencies
 
 ```python
-# Mock S3 service
+# Mock Storage service
 from app.main import app
-from app.services.s3_service import get_s3_service
+from app.services.storage_service import get_storage_service
 
-mock_s3 = MagicMock()
-mock_s3.upload_document.return_value = ("s3_key", "https://s3.example.com/url")
+mock_storage = MagicMock()
+mock_storage.upload_document.return_value = ("s3_key", "https://s3.example.com/url")
 
-def override_get_s3_service():
-    return mock_s3
+def override_get_storage_service():
+    return mock_storage
 
-app.dependency_overrides[get_s3_service] = override_get_s3_service
+app.dependency_overrides[get_storage_service] = override_get_storage_service
 
 try:
     # Your test code here
     pass
 finally:
-    app.dependency_overrides.pop(get_s3_service, None)
+    app.dependency_overrides.pop(get_storage_service, None)
 ```
 
 ---

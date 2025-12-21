@@ -244,7 +244,7 @@ async def test_integration_with_backend():
         print_info("User already exists, logging in...")
         response = requests.post(
             f"{BASE_URL}/api/v1/auth/login",
-            json={"email": test_email, "password": test_password},
+            data={"username": test_email, "password": test_password},
             timeout=10,
         )
         assert response.status_code == 200
@@ -254,7 +254,7 @@ async def test_integration_with_backend():
         print_info("New user created, logging in...")
         response = requests.post(
             f"{BASE_URL}/api/v1/auth/login",
-            json={"email": test_email, "password": test_password},
+            data={"username": test_email, "password": test_password},
             timeout=10,
         )
         assert response.status_code == 200

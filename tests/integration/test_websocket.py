@@ -54,18 +54,25 @@ class TestWebSocketChat:
         else:
             raise Exception(f"Failed to register user: {response.status_code} - {response.text}")
 
-        # Login to get token
-        response = requests.post(f"{BASE_URL}/api/v1/auth/login", json=test_user, timeout=10)
+        # Login to get token (fastapi-users uses form data, and token contains user ID not email)
+        response = requests.post(
+            f"{BASE_URL}/api/v1/auth/login",
+            data={"username": test_user["email"], "password": test_user["password"]},
+            timeout=10,
+        )
         assert response.status_code == 200, f"Login failed: {response.status_code} - {response.text}"
         self.token = response.json()["access_token"]
 
-        # Get user info from token (decode JWT to get email)
+        # Get user info from token (decode JWT to get user ID - fastapi-users uses ID, not email)
         import jwt
 
         from app.config import settings
 
-        payload = jwt.decode(self.token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
-        self.user_email = payload.get("sub")
+        payload = jwt.decode(
+            self.token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM], options={"verify_aud": False}
+        )
+        self.user_id = payload.get("sub")  # fastapi-users stores user ID (UUID), not email
+        self.user_email = test_user["email"]  # Store email separately
 
         # Create conversation via API
         response = requests.post(
