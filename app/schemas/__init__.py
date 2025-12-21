@@ -30,7 +30,7 @@ from app.schemas.sse import (
     SummaryReadyEvent,
 )
 from app.schemas.summary import SummaryCreate, SummaryResponse
-from app.schemas.user import Token, UserCreate, UserLogin, UserResponse
+from app.schemas.user import UserCreate, UserRead, UserUpdate
 from app.schemas.websocket import (
     AgentHandoffDoneEvent,
     AgentHandoffEvent,
@@ -48,9 +48,8 @@ from app.schemas.websocket import (
 __all__ = [
     # User schemas
     "UserCreate",
-    "UserLogin",
-    "UserResponse",
-    "Token",
+    "UserRead",
+    "UserUpdate",
     # Conversation schemas
     "ConversationCreate",
     "ConversationUpdate",

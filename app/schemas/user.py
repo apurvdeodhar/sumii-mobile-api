@@ -1,47 +1,37 @@
 """
 User Schemas
-Pydantic models for user request/response validation
+Pydantic models for user request/response validation using fastapi-users base schemas
 """
 
-from datetime import datetime
-from uuid import UUID
+import uuid
 
-from pydantic import BaseModel, ConfigDict, EmailStr
-
-
-class UserCreate(BaseModel):
-    """Schema for user registration request"""
-
-    email: EmailStr
-    password: str
+from fastapi_users import schemas
 
 
-class UserLogin(BaseModel):
-    """Schema for user login request"""
+class UserRead(schemas.BaseUser[uuid.UUID]):
+    """Schema for user response (read operations)
 
-    email: EmailStr
-    password: str
-
-
-class UserResponse(BaseModel):
-    """Schema for user response (no password!)
-
-    Includes mobile-specific fields: language, push_token, timezone
+    Includes custom fields: language, push_token, timezone, latitude, longitude
     """
 
-    model_config = ConfigDict(from_attributes=True)
-
-    id: UUID
-    email: str
     language: str | None = None  # "de" | "en" (default: "de")
     push_token: str | None = None  # Expo push token or AWS SNS token
     timezone: str | None = None  # IANA timezone identifier (e.g., "Europe/Berlin")
-    created_at: datetime | None = None
-    updated_at: datetime | None = None
+    latitude: str | None = None  # User's latitude for location-based lawyer search
+    longitude: str | None = None  # User's longitude for location-based lawyer search
 
 
-class Token(BaseModel):
-    """Schema for JWT token response"""
+class UserCreate(schemas.BaseUserCreate):
+    """Schema for user registration request"""
 
-    access_token: str
-    token_type: str = "bearer"
+    pass  # fastapi-users BaseUserCreate provides email and password fields
+
+
+class UserUpdate(schemas.BaseUserUpdate):
+    """Schema for user profile update request"""
+
+    language: str | None = None
+    push_token: str | None = None
+    timezone: str | None = None
+    latitude: str | None = None
+    longitude: str | None = None
