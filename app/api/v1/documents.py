@@ -9,9 +9,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
 from app.models.document import Document, OCRStatus, UploadStatus
 from app.models.user import User
-from app.schemas.document import DocumentListResponse, DocumentResponse
-from app.services.s3_service import S3Service, get_s3_service
-from app.utils.security import get_current_user
+from app.schemas.document import DocumentListResponse, DocumentResponse, DocumentUpdate
+from app.services.storage_service import StorageService, get_storage_service
+from app.users import current_active_user
 
 router = APIRouter(prefix="/api/v1/documents", tags=["documents"])
 
@@ -30,9 +30,9 @@ async def upload_document(
     file: UploadFile = File(...),
     conversation_id: UUID = Form(...),
     run_ocr: bool = Form(False),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(current_active_user),
     db: AsyncSession = Depends(get_db),
-    s3_service: S3Service = Depends(get_s3_service),
+    storage_service: StorageService = Depends(get_storage_service),
 ):
     """Upload document to S3 and create database record
 
@@ -99,7 +99,7 @@ async def upload_document(
 
     # Upload to S3
     try:
-        s3_key, s3_url = s3_service.upload_document(
+        s3_key, s3_url = storage_service.upload_document(
             file_content=file_content,
             user_id=current_user.id,
             conversation_id=conversation_id,
@@ -131,7 +131,7 @@ async def upload_document(
 @router.get("/{document_id}", response_model=DocumentResponse)
 async def get_document(
     document_id: UUID,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
     """Get document by ID
@@ -162,7 +162,7 @@ async def get_document(
 @router.get("/conversation/{conversation_id}", response_model=DocumentListResponse)
 async def list_conversation_documents(
     conversation_id: UUID,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
     """List all documents in a conversation
@@ -203,9 +203,9 @@ async def list_conversation_documents(
 @router.delete("/{document_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_document(
     document_id: UUID,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(current_active_user),
     db: AsyncSession = Depends(get_db),
-    s3_service: S3Service = Depends(get_s3_service),
+    storage_service: StorageService = Depends(get_storage_service),
 ):
     """Delete document (GDPR compliance)
 
@@ -232,7 +232,7 @@ async def delete_document(
 
     # Delete from S3
     try:
-        s3_service.delete_object(document.s3_key)
+        storage_service.delete_object(document.s3_key)
     except Exception as e:
         # Log error but continue with database deletion
         print(f"Warning: Failed to delete S3 object {document.s3_key}: {e}")
@@ -242,3 +242,51 @@ async def delete_document(
     await db.commit()
 
     return None
+
+
+@router.patch(
+    "/{document_id}",
+    response_model=DocumentResponse,
+    summary="Update document metadata",
+)
+async def update_document(
+    document_id: UUID,
+    document_data: DocumentUpdate,
+    current_user: User = Depends(current_active_user),
+    db: AsyncSession = Depends(get_db),
+) -> DocumentResponse:
+    """Update document metadata
+
+    Currently supports updating the filename only.
+
+    Args:
+        document_id: Document UUID
+        document_data: Fields to update
+        current_user: Authenticated user
+        db: Database session
+
+    Returns:
+        Updated DocumentResponse
+
+    Raises:
+        403: User doesn't own this document
+        404: Document not found
+    """
+    result = await db.execute(select(Document).where(Document.id == document_id))
+    document = result.scalar_one_or_none()
+
+    if not document:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
+
+    # Check ownership
+    if document.user_id != current_user.id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to update this document")
+
+    # Update fields if provided
+    if document_data.filename is not None:
+        document.filename = document_data.filename
+
+    await db.commit()
+    await db.refresh(document)
+
+    return document

@@ -14,6 +14,17 @@ class SummaryCreate(BaseModel):
     conversation_id: UUID
 
 
+class SummaryUpdate(BaseModel):
+    """Summary update request schema
+
+    All fields are optional - only provided fields will be updated.
+    """
+
+    legal_area: LegalArea | None = None
+    case_strength: CaseStrength | None = None
+    urgency: Urgency | None = None
+
+
 class SummaryResponse(BaseModel):
     """Summary response schema
 

@@ -22,6 +22,15 @@ class DocumentUpload(BaseModel):
     run_ocr: bool = Field(False, description="Whether to run OCR on this document (default: False)")
 
 
+class DocumentUpdate(BaseModel):
+    """Document update request schema
+
+    All fields are optional - only provided fields will be updated.
+    """
+
+    filename: Optional[str] = Field(None, description="New filename (optional)")
+
+
 class DocumentResponse(BaseModel):
     """Document response with all fields"""
 

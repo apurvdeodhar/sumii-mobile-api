@@ -18,14 +18,14 @@ from sqlalchemy.orm import selectinload
 from app.database import get_db
 from app.models import Conversation, Summary, User
 from app.models.conversation import CaseStrength, LegalArea, Urgency
-from app.schemas.summary import SummaryCreate, SummaryResponse
+from app.schemas.summary import SummaryCreate, SummaryResponse, SummaryUpdate
 from app.services.agents import MistralAgentsService, get_mistral_agents_service
 
 # PDFService imported lazily to avoid WeasyPrint system dependencies in tests
-from app.services.s3_service import S3Service, get_s3_service
+from app.services.storage_service import StorageService, get_storage_service
 from app.services.summary_service import get_summary_service
+from app.users import current_active_user
 from app.utils.reference_number import generate_sumii_reference_number
-from app.utils.security import get_current_user
 
 logger = logging.getLogger(__name__)
 
@@ -40,10 +40,10 @@ router = APIRouter()
 )
 async def create_summary(
     summary_data: SummaryCreate,
-    current_user: Annotated[User, Depends(get_current_user)],
+    current_user: Annotated[User, Depends(current_active_user)],
     db: Annotated[AsyncSession, Depends(get_db)],
     agents_service: Annotated[MistralAgentsService, Depends(get_mistral_agents_service)],
-    s3_service: Annotated[S3Service, Depends(get_s3_service)],
+    storage_service: Annotated[StorageService, Depends(get_storage_service)],
 ) -> SummaryResponse:
     """Generate a legal summary for a conversation
 
@@ -60,7 +60,7 @@ async def create_summary(
         current_user: Authenticated user
         db: Database session
         agents_service: Mistral agents service
-        s3_service: S3 service for file uploads
+        storage_service: Storage service for file uploads
 
     Returns:
         SummaryResponse with PDF URL and metadata
@@ -100,7 +100,7 @@ async def create_summary(
     if existing_summary:
         logger.info(f"Summary already exists for conversation {summary_data.conversation_id}")
         # Return existing summary (convert to response format)
-        return _summary_to_response(existing_summary, s3_service)
+        return _summary_to_response(existing_summary, storage_service)
 
     # Generate summary using Summary Agent
     try:
@@ -140,7 +140,7 @@ async def create_summary(
 
         # Upload markdown to S3
         markdown_bytes = markdown_content.encode("utf-8")
-        markdown_s3_key, _ = s3_service.upload_summary(
+        markdown_s3_key, _ = storage_service.upload_summary(
             file_content=markdown_bytes,
             reference_number=reference_number,
             file_extension="md",
@@ -149,7 +149,7 @@ async def create_summary(
         summary.markdown_s3_key = markdown_s3_key
 
         # Upload PDF to S3
-        pdf_s3_key, pdf_url = s3_service.upload_summary(
+        pdf_s3_key, pdf_url = storage_service.upload_summary(
             file_content=pdf_bytes,
             reference_number=reference_number,
             file_extension="pdf",
@@ -170,7 +170,7 @@ async def create_summary(
 
         logger.info(f"Summary generated successfully: {summary.id} ({reference_number})")
 
-        return _summary_to_response(summary, s3_service)
+        return _summary_to_response(summary, storage_service)
 
     except Exception as e:
         logger.error(f"Failed to generate summary: {e}", exc_info=True)
@@ -188,9 +188,9 @@ async def create_summary(
 )
 async def get_summary_by_conversation(
     conversation_id: UUID,
-    current_user: Annotated[User, Depends(get_current_user)],
+    current_user: Annotated[User, Depends(current_active_user)],
     db: Annotated[AsyncSession, Depends(get_db)],
-    s3_service: Annotated[S3Service, Depends(get_s3_service)],
+    storage_service: Annotated[StorageService, Depends(get_storage_service)],
 ) -> SummaryResponse:
     """Get summary for a specific conversation
 
@@ -198,7 +198,7 @@ async def get_summary_by_conversation(
         conversation_id: UUID of the conversation
         current_user: Authenticated user
         db: Database session
-        s3_service: S3 service for generating pre-signed URLs
+        storage_service: Storage service for generating pre-signed URLs
 
     Returns:
         SummaryResponse with PDF URL
@@ -233,7 +233,7 @@ async def get_summary_by_conversation(
             detail=f"Summary not found for conversation {conversation_id}",
         )
 
-    return _summary_to_response(summary, s3_service)
+    return _summary_to_response(summary, storage_service)
 
 
 @router.get(
@@ -242,9 +242,9 @@ async def get_summary_by_conversation(
     summary="List all summaries for authenticated user",
 )
 async def list_summaries(
-    current_user: Annotated[User, Depends(get_current_user)],
+    current_user: Annotated[User, Depends(current_active_user)],
     db: Annotated[AsyncSession, Depends(get_db)],
-    s3_service: Annotated[S3Service, Depends(get_s3_service)],
+    storage_service: Annotated[StorageService, Depends(get_storage_service)],
 ) -> list[SummaryResponse]:
     """List all summaries for the authenticated user
 
@@ -253,7 +253,7 @@ async def list_summaries(
     Args:
         current_user: Authenticated user
         db: Database session
-        s3_service: S3 service for generating pre-signed URLs
+        storage_service: Storage service for generating pre-signed URLs
 
     Returns:
         List of SummaryResponse
@@ -263,7 +263,7 @@ async def list_summaries(
     )
     summaries = result.scalars().all()
 
-    return [_summary_to_response(summary, s3_service) for summary in summaries]
+    return [_summary_to_response(summary, storage_service) for summary in summaries]
 
 
 @router.get(
@@ -272,9 +272,9 @@ async def list_summaries(
 )
 async def get_summary_pdf_url(
     summary_id: UUID,
-    current_user: Annotated[User, Depends(get_current_user)],
+    current_user: Annotated[User, Depends(current_active_user)],
     db: Annotated[AsyncSession, Depends(get_db)],
-    s3_service: Annotated[S3Service, Depends(get_s3_service)],
+    storage_service: Annotated[StorageService, Depends(get_storage_service)],
 ) -> dict[str, str]:
     """Get pre-signed S3 URL for PDF download
 
@@ -284,7 +284,7 @@ async def get_summary_pdf_url(
         summary_id: UUID of the summary
         current_user: Authenticated user
         db: Database session
-        s3_service: S3 service for generating pre-signed URLs
+        storage_service: Storage service for generating pre-signed URLs
 
     Returns:
         Dict with "pdf_url" key
@@ -309,17 +309,309 @@ async def get_summary_pdf_url(
         )
 
     # Generate new pre-signed URL (expires in 7 days)
-    pdf_url = s3_service.generate_presigned_url(summary.pdf_s3_key, expiration_days=7)
+    pdf_url = storage_service.generate_presigned_url(summary.pdf_s3_key, expiration_days=7)
 
     return {"pdf_url": pdf_url}
 
 
-def _summary_to_response(summary: Summary, s3_service: S3Service) -> SummaryResponse:
+@router.get(
+    "/summaries/{summary_id}",
+    response_model=SummaryResponse,
+    summary="Get summary by ID",
+)
+async def get_summary(
+    summary_id: UUID,
+    current_user: Annotated[User, Depends(current_active_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+    storage_service: Annotated[StorageService, Depends(get_storage_service)],
+) -> SummaryResponse:
+    """Get summary by ID
+
+    Args:
+        summary_id: UUID of the summary
+        current_user: Authenticated user
+        db: Database session
+        storage_service: Storage service for generating pre-signed URLs
+
+    Returns:
+        SummaryResponse with PDF URL
+
+    Raises:
+        404: Summary not found
+        403: User doesn't own summary
+    """
+    result = await db.execute(select(Summary).where(Summary.id == summary_id))
+    summary = result.scalar_one_or_none()
+
+    if not summary:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Summary {summary_id} not found",
+        )
+
+    if summary.user_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You don't have permission to access this summary",
+        )
+
+    return _summary_to_response(summary, storage_service)
+
+
+@router.patch(
+    "/summaries/{summary_id}",
+    response_model=SummaryResponse,
+    summary="Update summary metadata",
+)
+async def update_summary(
+    summary_id: UUID,
+    summary_data: SummaryUpdate,
+    current_user: Annotated[User, Depends(current_active_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+    storage_service: Annotated[StorageService, Depends(get_storage_service)],
+) -> SummaryResponse:
+    """Update summary metadata
+
+    Allows updating legal_area, case_strength, and urgency fields.
+
+    Args:
+        summary_id: UUID of the summary
+        summary_data: Fields to update
+        current_user: Authenticated user
+        db: Database session
+        storage_service: Storage service for generating pre-signed URLs
+
+    Returns:
+        Updated SummaryResponse
+
+    Raises:
+        404: Summary not found
+        403: User doesn't own summary
+    """
+    result = await db.execute(select(Summary).where(Summary.id == summary_id))
+    summary = result.scalar_one_or_none()
+
+    if not summary:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Summary {summary_id} not found",
+        )
+
+    if summary.user_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You don't have permission to update this summary",
+        )
+
+    # Update fields if provided
+    if summary_data.legal_area is not None:
+        summary.legal_area = summary_data.legal_area
+    if summary_data.case_strength is not None:
+        summary.case_strength = summary_data.case_strength
+    if summary_data.urgency is not None:
+        summary.urgency = summary_data.urgency
+
+    await db.commit()
+    await db.refresh(summary)
+
+    return _summary_to_response(summary, storage_service)
+
+
+@router.delete(
+    "/summaries/{summary_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Delete summary (GDPR compliance)",
+)
+async def delete_summary(
+    summary_id: UUID,
+    current_user: Annotated[User, Depends(current_active_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+    storage_service: Annotated[StorageService, Depends(get_storage_service)],
+) -> None:
+    """Delete summary (GDPR compliance)
+
+    Deletes:
+    - Summary PDF from storage
+    - Summary markdown from storage (if exists)
+    - Summary record from database
+
+    Args:
+        summary_id: UUID of the summary
+        current_user: Authenticated user
+        db: Database session
+        storage_service: Storage service for deleting files
+
+    Raises:
+        404: Summary not found
+        403: User doesn't own summary
+    """
+    result = await db.execute(select(Summary).where(Summary.id == summary_id))
+    summary = result.scalar_one_or_none()
+
+    if not summary:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Summary {summary_id} not found",
+        )
+
+    if summary.user_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You don't have permission to delete this summary",
+        )
+
+    # Delete files from storage
+    try:
+        if summary.pdf_s3_key:
+            storage_service.delete_object(summary.pdf_s3_key)
+        if summary.markdown_s3_key:
+            storage_service.delete_object(summary.markdown_s3_key)
+    except Exception as e:
+        # Log error but continue with database deletion
+        logger.warning(f"Failed to delete storage objects for summary {summary_id}: {e}")
+
+    # Delete from database
+    await db.delete(summary)
+    await db.commit()
+
+    return None
+
+
+@router.post(
+    "/summaries/{summary_id}/regenerate",
+    response_model=SummaryResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Regenerate summary from conversation",
+)
+async def regenerate_summary(
+    summary_id: UUID,
+    current_user: Annotated[User, Depends(current_active_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+    agents_service: Annotated[MistralAgentsService, Depends(get_mistral_agents_service)],
+    storage_service: Annotated[StorageService, Depends(get_storage_service)],
+) -> SummaryResponse:
+    """Regenerate summary from conversation
+
+    Regenerates the summary using the latest conversation state.
+    Deletes old summary files and creates new ones.
+
+    Args:
+        summary_id: UUID of the existing summary
+        current_user: Authenticated user
+        db: Database session
+        agents_service: Mistral agents service
+        storage_service: Storage service for file operations
+
+    Returns:
+        Updated SummaryResponse with new PDF URL
+
+    Raises:
+        404: Summary or conversation not found
+        403: User doesn't own summary
+        500: Regeneration failed
+    """
+    # Get existing summary
+    result = await db.execute(select(Summary).where(Summary.id == summary_id))
+    summary = result.scalar_one_or_none()
+
+    if not summary:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Summary {summary_id} not found",
+        )
+
+    if summary.user_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You don't have permission to regenerate this summary",
+        )
+
+    # Get conversation with messages
+    conversation_result = await db.execute(
+        select(Conversation)
+        .where(Conversation.id == summary.conversation_id)
+        .options(selectinload(Conversation.messages))
+    )
+    conversation = conversation_result.scalar_one_or_none()
+
+    if not conversation:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Conversation {summary.conversation_id} not found",
+        )
+
+    # Delete old files from storage
+    try:
+        if summary.pdf_s3_key:
+            storage_service.delete_object(summary.pdf_s3_key)
+        if summary.markdown_s3_key:
+            storage_service.delete_object(summary.markdown_s3_key)
+    except Exception as e:
+        logger.warning(f"Failed to delete old storage objects for summary {summary_id}: {e}")
+
+    # Generate new summary
+    try:
+        summary_service = get_summary_service(agents_service)
+        markdown_content, metadata = await summary_service.generate_summary(conversation, db)
+
+        # Update summary record
+        summary.markdown_content = markdown_content
+        summary.legal_area = LegalArea(
+            metadata.get("legal_area", summary.legal_area.value if summary.legal_area else "Mietrecht")
+        )
+        summary.case_strength = CaseStrength(
+            metadata.get("case_strength", summary.case_strength.value if summary.case_strength else "medium")
+        )
+        summary.urgency = Urgency(metadata.get("urgency", summary.urgency.value if summary.urgency else "weeks"))
+
+        await db.flush()  # Get updated summary without committing
+
+        # Convert markdown to PDF
+        from app.services.pdf_service import PDFService
+
+        pdf_service = PDFService()
+        pdf_bytes = pdf_service.markdown_to_pdf(markdown_content, summary.reference_number)
+
+        # Upload markdown to storage
+        markdown_bytes = markdown_content.encode("utf-8")
+        markdown_s3_key, _ = storage_service.upload_summary(
+            file_content=markdown_bytes,
+            reference_number=summary.reference_number,
+            file_extension="md",
+            content_type="text/markdown",
+        )
+        summary.markdown_s3_key = markdown_s3_key
+
+        # Upload PDF to storage
+        pdf_s3_key, pdf_url = storage_service.upload_summary(
+            file_content=pdf_bytes,
+            reference_number=summary.reference_number,
+            file_extension="pdf",
+            content_type="application/pdf",
+        )
+        summary.pdf_s3_key = pdf_s3_key
+        summary.pdf_url = pdf_url
+
+        await db.commit()
+        await db.refresh(summary)
+
+        return _summary_to_response(summary, storage_service)
+
+    except Exception as e:
+        logger.error(f"Failed to regenerate summary: {e}", exc_info=True)
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Summary regeneration failed: {str(e)}",
+        ) from e
+
+
+def _summary_to_response(summary: Summary, storage_service: StorageService) -> SummaryResponse:
     """Convert Summary model to SummaryResponse schema
 
     Args:
         summary: Summary model instance
-        s3_service: S3 service for generating pre-signed URLs
+        storage_service: Storage service for generating pre-signed URLs
 
     Returns:
         SummaryResponse instance
@@ -335,7 +627,7 @@ def _summary_to_response(summary: Summary, s3_service: S3Service) -> SummaryResp
     # Generate fresh pre-signed URL if needed
     pdf_url = summary.pdf_url
     if not pdf_url or not pdf_url.startswith("http"):
-        pdf_url = s3_service.generate_presigned_url(summary.pdf_s3_key, expiration_days=7)
+        pdf_url = storage_service.generate_presigned_url(summary.pdf_s3_key, expiration_days=7)
 
     return SummaryResponse(
         id=summary.id,
