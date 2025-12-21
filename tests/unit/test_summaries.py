@@ -52,7 +52,7 @@ class TestSummaryGeneration:
         # Mock services using FastAPI dependency override and patching
         from app.main import app
         from app.services.agents import get_mistral_agents_service
-        from app.services.s3_service import get_s3_service
+        from app.services.storage_service import get_storage_service
 
         # Mock agents service using dependency override
         mock_agents_instance = MagicMock()
@@ -69,7 +69,7 @@ class TestSummaryGeneration:
         ]
         mock_s3_instance.generate_presigned_url.return_value = "https://s3.example.com/presigned"
 
-        def override_get_s3_service():
+        def override_get_storage_service():
             return mock_s3_instance
 
         # Mock summary service (called directly, not a dependency)
@@ -80,7 +80,7 @@ class TestSummaryGeneration:
         )
 
         app.dependency_overrides[get_mistral_agents_service] = override_get_mistral_agents_service
-        app.dependency_overrides[get_s3_service] = override_get_s3_service
+        app.dependency_overrides[get_storage_service] = override_get_storage_service
 
         try:
             # Mock summary service and PDFService
@@ -124,7 +124,7 @@ class TestSummaryGeneration:
                     setattr(original_module, "PDFService", original_module._original_pdf_class)
         finally:
             app.dependency_overrides.pop(get_mistral_agents_service, None)
-            app.dependency_overrides.pop(get_s3_service, None)
+            app.dependency_overrides.pop(get_storage_service, None)
 
         assert response.status_code == status.HTTP_201_CREATED
         data = response.json()
@@ -162,15 +162,15 @@ class TestSummaryGeneration:
 
         # Mock S3 service using FastAPI dependency override
         from app.main import app
-        from app.services.s3_service import get_s3_service
+        from app.services.storage_service import get_storage_service
 
         mock_s3_instance = MagicMock()
         mock_s3_instance.generate_presigned_url.return_value = "https://s3.example.com/presigned"
 
-        def override_get_s3_service():
+        def override_get_storage_service():
             return mock_s3_instance
 
-        app.dependency_overrides[get_s3_service] = override_get_s3_service
+        app.dependency_overrides[get_storage_service] = override_get_storage_service
 
         try:
             # Make request
@@ -180,7 +180,7 @@ class TestSummaryGeneration:
                 headers=auth_headers,
             )
         finally:
-            app.dependency_overrides.pop(get_s3_service, None)
+            app.dependency_overrides.pop(get_storage_service, None)
 
         assert response.status_code == status.HTTP_201_CREATED
         data = response.json()
@@ -278,15 +278,15 @@ class TestSummaryRetrieval:
 
         # Mock S3 service using FastAPI dependency override
         from app.main import app
-        from app.services.s3_service import get_s3_service
+        from app.services.storage_service import get_storage_service
 
         mock_s3_instance = MagicMock()
         mock_s3_instance.generate_presigned_url.return_value = "https://s3.example.com/presigned"
 
-        def override_get_s3_service():
+        def override_get_storage_service():
             return mock_s3_instance
 
-        app.dependency_overrides[get_s3_service] = override_get_s3_service
+        app.dependency_overrides[get_storage_service] = override_get_storage_service
 
         try:
             response = await async_client.get(
@@ -294,7 +294,7 @@ class TestSummaryRetrieval:
                 headers=auth_headers,
             )
         finally:
-            app.dependency_overrides.pop(get_s3_service, None)
+            app.dependency_overrides.pop(get_storage_service, None)
 
         assert response.status_code == status.HTTP_200_OK
         data = response.json()
@@ -392,20 +392,20 @@ class TestSummaryRetrieval:
 
         # Mock S3 service using FastAPI dependency override
         from app.main import app
-        from app.services.s3_service import get_s3_service
+        from app.services.storage_service import get_storage_service
 
         mock_s3_instance = MagicMock()
         mock_s3_instance.generate_presigned_url.return_value = "https://s3.example.com/presigned"
 
-        def override_get_s3_service():
+        def override_get_storage_service():
             return mock_s3_instance
 
-        app.dependency_overrides[get_s3_service] = override_get_s3_service
+        app.dependency_overrides[get_storage_service] = override_get_storage_service
 
         try:
             response = await async_client.get("/api/v1/summaries", headers=auth_headers)
         finally:
-            app.dependency_overrides.pop(get_s3_service, None)
+            app.dependency_overrides.pop(get_storage_service, None)
 
         assert response.status_code == status.HTTP_200_OK
         data = response.json()
@@ -448,15 +448,15 @@ class TestSummaryRetrieval:
 
         # Mock S3 service using FastAPI dependency override
         from app.main import app
-        from app.services.s3_service import get_s3_service
+        from app.services.storage_service import get_storage_service
 
         mock_s3_instance = MagicMock()
         mock_s3_instance.generate_presigned_url.return_value = "https://s3.example.com/new-presigned-url"
 
-        def override_get_s3_service():
+        def override_get_storage_service():
             return mock_s3_instance
 
-        app.dependency_overrides[get_s3_service] = override_get_s3_service
+        app.dependency_overrides[get_storage_service] = override_get_storage_service
 
         try:
             response = await async_client.get(
@@ -464,7 +464,7 @@ class TestSummaryRetrieval:
                 headers=auth_headers,
             )
         finally:
-            app.dependency_overrides.pop(get_s3_service, None)
+            app.dependency_overrides.pop(get_storage_service, None)
 
         assert response.status_code == status.HTTP_200_OK
         data = response.json()

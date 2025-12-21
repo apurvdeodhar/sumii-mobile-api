@@ -30,7 +30,7 @@ class TestDocumentUpload:
     async def test_upload_pdf_success(self, async_client: AsyncClient, auth_headers: dict, test_conversation):
         """Test successful PDF upload"""
         from app.main import app
-        from app.services.s3_service import get_s3_service
+        from app.services.storage_service import get_storage_service
 
         # Create fake PDF file
         pdf_content = b"%PDF-1.4 fake pdf content"
@@ -44,15 +44,15 @@ class TestDocumentUpload:
             "https://s3.example.com/presigned-url",
         )
 
-        def override_get_s3_service():
+        def override_get_storage_service():
             return mock_s3_instance
 
-        app.dependency_overrides[get_s3_service] = override_get_s3_service
+        app.dependency_overrides[get_storage_service] = override_get_storage_service
 
         try:
             response = await async_client.post("/api/v1/documents/", data=data, files=files, headers=auth_headers)
         finally:
-            app.dependency_overrides.pop(get_s3_service, None)
+            app.dependency_overrides.pop(get_storage_service, None)
 
         assert response.status_code == status.HTTP_201_CREATED
         data = response.json()
@@ -67,7 +67,7 @@ class TestDocumentUpload:
     async def test_upload_with_ocr(self, async_client: AsyncClient, auth_headers: dict, test_conversation):
         """Test upload with OCR enabled"""
         from app.main import app
-        from app.services.s3_service import get_s3_service
+        from app.services.storage_service import get_storage_service
 
         pdf_content = b"%PDF-1.4 fake pdf with text"
         files = {"file": ("document.pdf", io.BytesIO(pdf_content), "application/pdf")}
@@ -77,15 +77,15 @@ class TestDocumentUpload:
         mock_s3_instance = MagicMock()
         mock_s3_instance.upload_document.return_value = ("s3_key", "https://s3.example.com/url")
 
-        def override_get_s3_service():
+        def override_get_storage_service():
             return mock_s3_instance
 
-        app.dependency_overrides[get_s3_service] = override_get_s3_service
+        app.dependency_overrides[get_storage_service] = override_get_storage_service
 
         try:
             response = await async_client.post("/api/v1/documents/", data=data, files=files, headers=auth_headers)
         finally:
-            app.dependency_overrides.pop(get_s3_service, None)
+            app.dependency_overrides.pop(get_storage_service, None)
 
         assert response.status_code == status.HTTP_201_CREATED
         data = response.json()
@@ -146,7 +146,7 @@ class TestDocumentUpload:
     async def test_upload_s3_failure(self, async_client: AsyncClient, auth_headers: dict, test_conversation):
         """Test handling of S3 upload failure"""
         from app.main import app
-        from app.services.s3_service import get_s3_service
+        from app.services.storage_service import get_storage_service
 
         pdf_content = b"%PDF-1.4 fake pdf"
         files = {"file": ("test.pdf", io.BytesIO(pdf_content), "application/pdf")}
@@ -156,15 +156,15 @@ class TestDocumentUpload:
         mock_s3_instance = MagicMock()
         mock_s3_instance.upload_document.side_effect = Exception("S3 connection failed")
 
-        def override_get_s3_service():
+        def override_get_storage_service():
             return mock_s3_instance
 
-        app.dependency_overrides[get_s3_service] = override_get_s3_service
+        app.dependency_overrides[get_storage_service] = override_get_storage_service
 
         try:
             response = await async_client.post("/api/v1/documents/", data=data, files=files, headers=auth_headers)
         finally:
-            app.dependency_overrides.pop(get_s3_service, None)
+            app.dependency_overrides.pop(get_storage_service, None)
 
         assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
         assert "Upload failed" in response.json()["detail"]
@@ -262,7 +262,7 @@ class TestDocumentDeletion:
     async def test_delete_document_success(self, async_client: AsyncClient, auth_headers: dict, test_document):
         """Test successful document deletion"""
         from app.main import app
-        from app.services.s3_service import get_s3_service
+        from app.services.storage_service import get_storage_service
 
         document_id = test_document.id
 
@@ -270,15 +270,15 @@ class TestDocumentDeletion:
         mock_s3_instance = MagicMock()
         mock_s3_instance.delete_object.return_value = None
 
-        def override_get_s3_service():
+        def override_get_storage_service():
             return mock_s3_instance
 
-        app.dependency_overrides[get_s3_service] = override_get_s3_service
+        app.dependency_overrides[get_storage_service] = override_get_storage_service
 
         try:
             response = await async_client.delete(f"/api/v1/documents/{document_id}", headers=auth_headers)
         finally:
-            app.dependency_overrides.pop(get_s3_service, None)
+            app.dependency_overrides.pop(get_storage_service, None)
 
         assert response.status_code == status.HTTP_204_NO_CONTENT
 
@@ -309,7 +309,7 @@ class TestDocumentDeletion:
     async def test_delete_document_s3_failure(self, async_client: AsyncClient, auth_headers: dict, test_document):
         """Test deletion continues even if S3 delete fails"""
         from app.main import app
-        from app.services.s3_service import get_s3_service
+        from app.services.storage_service import get_storage_service
 
         document_id = test_document.id
 
@@ -317,15 +317,15 @@ class TestDocumentDeletion:
         mock_s3_instance = MagicMock()
         mock_s3_instance.delete_object.side_effect = Exception("S3 connection failed")
 
-        def override_get_s3_service():
+        def override_get_storage_service():
             return mock_s3_instance
 
-        app.dependency_overrides[get_s3_service] = override_get_s3_service
+        app.dependency_overrides[get_storage_service] = override_get_storage_service
 
         try:
             response = await async_client.delete(f"/api/v1/documents/{document_id}", headers=auth_headers)
         finally:
-            app.dependency_overrides.pop(get_s3_service, None)
+            app.dependency_overrides.pop(get_storage_service, None)
 
         # Should still succeed (deletes from DB even if S3 fails)
         assert response.status_code == status.HTTP_204_NO_CONTENT

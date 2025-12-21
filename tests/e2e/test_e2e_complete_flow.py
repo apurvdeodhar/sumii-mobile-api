@@ -139,7 +139,7 @@ def _test_authentication():
     try:
         response = requests.post(
             f"{BASE_URL}/api/v1/auth/login",
-            json={"email": test_email, "password": test_password},
+            data={"username": test_email, "password": test_password},  # fastapi-users uses form data
             timeout=10,
         )
         assert response.status_code == 200

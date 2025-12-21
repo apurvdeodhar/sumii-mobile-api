@@ -45,10 +45,10 @@ class TestRESTWebSocketIntegration:
         else:
             raise Exception(f"Failed to register: {response.status_code} - {response.text}")
 
-        # Login to get token
+        # Login to get token (fastapi-users uses form data, not JSON)
         response = requests.post(
             f"{BASE_URL}/api/v1/auth/login",
-            json={"email": unique_email, "password": "SecurePassword123!"},
+            data={"username": unique_email, "password": "SecurePassword123!"},  # Form data
             timeout=10,
         )
         assert response.status_code == 200, f"Login failed: {response.status_code} - {response.text}"
@@ -323,7 +323,7 @@ class TestRESTWebSocketIntegration:
         )
         response = requests.post(
             f"{BASE_URL}/api/v1/auth/login",
-            json={"email": other_email, "password": "SecurePassword123!"},
+            data={"username": other_email, "password": "SecurePassword123!"},  # fastapi-users uses form data
             timeout=10,
         )
         other_token = response.json()["access_token"]
