@@ -53,21 +53,30 @@ async def db_engine():
     # Convert async URL to sync for Alembic
     sync_db_url = TEST_DATABASE_URL.replace("postgresql+asyncpg://", "postgresql://")
 
-    # Run Alembic migrations
+    # Run Alembic migrations using venv Python
     env = os.environ.copy()
     env["DATABASE_URL"] = sync_db_url
 
+    # Get project root directory (parent of tests/)
+    project_root = Path(__file__).resolve().parent.parent
+    # Use venv Python to run alembic as a module
+    venv_python = project_root / ".venv" / "bin" / "python3"
+
+    # Fallback to system Python if venv doesn't exist (for CI/CD)
+    python_cmd = str(venv_python) if venv_python.exists() else "python3"
+
     try:
         subprocess.run(
-            ["alembic", "upgrade", "head"],
+            [python_cmd, "-m", "alembic", "upgrade", "head"],
             check=True,
             capture_output=True,
             text=True,
             env=env,
-            cwd=str(Path(__file__).resolve().parent.parent),
+            cwd=str(project_root),
         )
-    except subprocess.CalledProcessError:
+    except subprocess.CalledProcessError as e:
         # If migrations fail, fall back to create_all (for development)
+        print(f"Alembic migration failed: {e.stderr if hasattr(e, 'stderr') else 'Unknown error'}")
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all, checkfirst=False)
 
@@ -99,13 +108,13 @@ async def client(db_session, test_user):
     async def override_get_db():
         yield db_session
 
-    from app.utils.security import get_current_user
+    from app.users import current_active_user
 
-    async def override_get_current_user():
+    async def override_current_active_user():
         return test_user
 
     app.dependency_overrides[get_db] = override_get_db
-    app.dependency_overrides[get_current_user] = override_get_current_user
+    app.dependency_overrides[current_active_user] = override_current_active_user
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
         yield ac
@@ -120,13 +129,13 @@ async def async_client(db_session, test_user):
     async def override_get_db():
         yield db_session
 
-    from app.utils.security import get_current_user
+    from app.users import current_active_user
 
-    async def override_get_current_user():
+    async def override_current_active_user():
         return test_user
 
     app.dependency_overrides[get_db] = override_get_db
-    app.dependency_overrides[get_current_user] = override_get_current_user
+    app.dependency_overrides[current_active_user] = override_current_active_user
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
         yield ac
@@ -136,11 +145,20 @@ async def async_client(db_session, test_user):
 
 @pytest_asyncio.fixture(scope="function")
 async def test_user(db_session):
-    """Create a test user"""
-    from app.models.user import User
-    from app.utils.security import hash_password
+    """Create a test user (fastapi-users compatible)"""
+    from fastapi_users.password import PasswordHelper
 
-    user = User(email="testuser@example.com", hashed_password=hash_password("testpass123"))
+    from app.models.user import User
+
+    password_helper = PasswordHelper()
+    hashed_password = password_helper.hash("testpass123")
+    user = User(
+        email="testuser@example.com",
+        hashed_password=hashed_password,
+        is_active=True,
+        is_verified=True,
+        is_superuser=False,
+    )
     db_session.add(user)
     await db_session.commit()
     await db_session.refresh(user)
@@ -150,10 +168,19 @@ async def test_user(db_session):
 @pytest_asyncio.fixture(scope="function")
 async def other_user(db_session):
     """Create another test user (for authorization tests)"""
-    from app.models.user import User
-    from app.utils.security import hash_password
+    from fastapi_users.password import PasswordHelper
 
-    user = User(email="otheruser@example.com", hashed_password=hash_password("testpass123"))
+    from app.models.user import User
+
+    password_helper = PasswordHelper()
+    hashed_password = password_helper.hash("testpass123")
+    user = User(
+        email="otheruser@example.com",
+        hashed_password=hashed_password,
+        is_active=True,
+        is_verified=True,
+        is_superuser=False,
+    )
     db_session.add(user)
     await db_session.commit()
     await db_session.refresh(user)
@@ -162,10 +189,17 @@ async def other_user(db_session):
 
 @pytest_asyncio.fixture(scope="function")
 async def auth_headers(test_user):
-    """Generate auth headers with JWT token"""
-    from app.utils.security import create_access_token
+    """Generate auth headers with JWT token (fastapi-users format)"""
+    from datetime import datetime, timedelta, timezone
 
-    token = create_access_token(data={"sub": test_user.email})
+    from jose import jwt
+
+    from app.config import settings
+
+    # fastapi-users JWT format: sub contains user ID (UUID), not email
+    expire = datetime.now(timezone.utc) + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+    to_encode = {"sub": str(test_user.id), "aud": ["fastapi-users:auth"], "exp": expire}
+    token = jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
     return {"Authorization": f"Bearer {token}"}
 
 
