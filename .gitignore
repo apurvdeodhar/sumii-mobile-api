@@ -128,4 +128,7 @@ docs/
 !tests/docs/
 !tests/docs/*.md
 # Re-ignore uppercase files in tests/docs/ (override the above)
+# Pattern: matches files starting with 3+ uppercase letters (e.g., STATUS_DEC20.md, TEST_STATUS.md)
 tests/docs/[A-Z][A-Z][A-Z]*.md
+# Explicitly allow status_dec20.md (lowercase, should be committed)
+!tests/docs/status_dec20.md
