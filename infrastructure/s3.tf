@@ -1,8 +1,8 @@
 # S3 Buckets for PDFs and Documents
 
-# PDF Storage Bucket
+# PDF Storage Bucket (environment-specific naming)
 resource "aws_s3_bucket" "pdfs" {
-  bucket = var.s3_pdf_bucket_name
+  bucket = var.s3_pdf_bucket_name != "" ? var.s3_pdf_bucket_name : "${local.common_name}-pdfs"
 
   tags = {
     Name        = "${local.common_name}-pdfs"
@@ -57,9 +57,9 @@ resource "aws_s3_bucket_cors_configuration" "pdfs" {
   }
 }
 
-# Document Upload Bucket
+# Document Upload Bucket (environment-specific naming)
 resource "aws_s3_bucket" "documents" {
-  bucket = var.s3_documents_bucket_name
+  bucket = var.s3_documents_bucket_name != "" ? var.s3_documents_bucket_name : "${local.common_name}-documents"
 
   tags = {
     Name        = "${local.common_name}-documents"

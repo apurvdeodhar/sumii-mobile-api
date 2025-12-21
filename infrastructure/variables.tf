@@ -47,15 +47,15 @@ variable "db_name" {
 
 # S3 Configuration
 variable "s3_pdf_bucket_name" {
-  description = "S3 bucket for PDF storage"
+  description = "S3 bucket for PDF storage (auto-generated if not provided)"
   type        = string
-  default     = "sumii-pdfs-prod"
+  default     = ""
 }
 
 variable "s3_documents_bucket_name" {
-  description = "S3 bucket for document uploads"
+  description = "S3 bucket for document uploads (auto-generated if not provided)"
   type        = string
-  default     = "sumii-documents-prod"
+  default     = ""
 }
 
 # ECS Fargate Configuration
