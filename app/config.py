@@ -15,7 +15,7 @@ class Settings(BaseSettings):
     # Mistral AI
     MISTRAL_API_KEY: str
     MISTRAL_ORG_ID: str  # Required for library sharing with agents
-    MISTRAL_LIBRARY_ID: str  # Document library with BGB sections, court cases, templates
+    MISTRAL_LIBRARY_ID: str  # Document library with interviewing skills, real-world examples, and summary templates
 
     # JWT Authentication
     SECRET_KEY: str = "development-secret-key"
@@ -25,6 +25,10 @@ class Settings(BaseSettings):
     # OAuth Providers (optional for MVP)
     GOOGLE_CLIENT_ID: str | None = None
     GOOGLE_CLIENT_SECRET: str | None = None
+
+    # AWS SES (for email verification and password reset)
+    SES_FROM_EMAIL: str = "noreply@sumii.de"  # Must be verified in SES
+    FRONTEND_URL: str = "https://app.sumii.de"  # Frontend URL for email links
     APPLE_CLIENT_ID: str | None = None
     APPLE_TEAM_ID: str | None = None
     APPLE_KEY_ID: str | None = None
@@ -35,6 +39,12 @@ class Settings(BaseSettings):
     AWS_SECRET_ACCESS_KEY: str | None = None
     AWS_REGION: str = "eu-central-1"
     S3_BUCKET: str = "sumii-pdfs-dev"
+
+    # sumii-anwalt Backend Integration
+    ANWALT_API_BASE_URL: str = "http://localhost:8001"  # Default to local development
+    ANWALT_API_KEY: str | None = (
+        None  # API key for authenticating webhook requests from sumii-anwalt (set in production)
+    )
 
     # Logging Configuration
     LOG_LEVEL: str = "INFO"  # DEBUG, INFO, WARNING, ERROR, CRITICAL
