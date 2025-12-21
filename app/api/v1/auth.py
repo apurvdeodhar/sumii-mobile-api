@@ -1,80 +1,41 @@
 """
-Authentication Endpoints
-User registration and login with JWT tokens
+Authentication Endpoints using fastapi-users
+Registration, login, email verification, password reset, and OAuth
 """
 
-from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
+from fastapi import APIRouter
 
-from app.database import get_db
-from app.models.user import User
-from app.schemas.user import Token, UserCreate, UserLogin, UserResponse
-from app.utils.security import create_access_token, hash_password, verify_password
+from app.config import settings
+from app.schemas.user import UserCreate, UserRead
+from app.users import auth_backend, fastapi_users, google_oauth_client
 
-router = APIRouter()
+router = APIRouter(tags=["auth"])
 
+# JWT Authentication router (login/logout)
+# Note: fastapi-users creates /login endpoint, we want /api/v1/auth/login
+# So we include it without prefix (auth router already has /api/v1/auth prefix from main.py)
+router.include_router(
+    fastapi_users.get_auth_router(auth_backend, requires_verification=False),  # Allow unverified users to login
+)
 
-@router.post("/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
-async def register(user_data: UserCreate, db: AsyncSession = Depends(get_db)):
-    """
-    Register a new user.
+# Registration router
+router.include_router(
+    fastapi_users.get_register_router(UserRead, UserCreate),
+)
 
-    Args:
-        user_data: Email and password
-        db: Database session
+# Email verification router
+router.include_router(
+    fastapi_users.get_verify_router(UserRead),
+)
 
-    Returns:
-        UserResponse: Created user (without password)
+# Password reset router
+router.include_router(
+    fastapi_users.get_reset_password_router(),
+)
 
-    Raises:
-        HTTPException 400: Email already registered
-    """
-    # Check if user already exists
-    result = await db.execute(select(User).where(User.email == user_data.email))
-    existing_user = result.scalars().first()
-
-    if existing_user:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Email already registered")
-
-    # Create new user with hashed password
-    user = User(email=user_data.email, hashed_password=hash_password(user_data.password))
-
-    db.add(user)
-    await db.commit()
-    await db.refresh(user)
-
-    return user
-
-
-@router.post("/login", response_model=Token)
-async def login(user_data: UserLogin, db: AsyncSession = Depends(get_db)):
-    """
-    Login user and return JWT token.
-
-    Args:
-        user_data: Email and password
-        db: Database session
-
-    Returns:
-        Token: JWT access token
-
-    Raises:
-        HTTPException 401: Invalid credentials
-    """
-    # Get user by email
-    result = await db.execute(select(User).where(User.email == user_data.email))
-    user = result.scalars().first()
-
-    # Verify user exists and password is correct
-    if not user or not verify_password(user_data.password, user.hashed_password):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid credentials",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-
-    # Create JWT token with user email as subject
-    access_token = create_access_token(data={"sub": user.email})
-
-    return {"access_token": access_token, "token_type": "bearer"}
+# Google OAuth router (if configured)
+if google_oauth_client:
+    router.include_router(
+        fastapi_users.get_oauth_router(google_oauth_client, auth_backend, settings.SECRET_KEY),
+        prefix="/google",
+    )

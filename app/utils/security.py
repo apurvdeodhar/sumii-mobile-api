@@ -73,22 +73,34 @@ def create_access_token(data: dict, expires_delta: timedelta | None = None) -> s
 
 
 def verify_token_ws(token: str) -> dict:
-    """Verify JWT token for WebSocket connections
+    """Verify JWT token for WebSocket connections (fastapi-users compatible)
 
     Args:
-        token: JWT token from query parameter
+        token: JWT token from query parameter (fastapi-users format)
 
     Returns:
-        dict: Decoded token payload
+        dict: Decoded token payload with 'sub' containing user ID (UUID string)
 
     Raises:
         Exception: If token is invalid or expired
     """
     try:
-        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+        # fastapi-users JWT tokens include audience claim
+        # Try with audience verification disabled for backward compatibility
+        payload = jwt.decode(
+            token,
+            settings.SECRET_KEY,
+            algorithms=[settings.ALGORITHM],
+            options={"verify_aud": False},  # Allow tokens without audience for backward compatibility
+        )
         return payload
-    except JWTError as e:
-        raise Exception(f"Invalid token: {e}")
+    except JWTError:
+        # Try without audience verification for backward compatibility
+        try:
+            payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+            return payload
+        except JWTError as e:
+            raise Exception(f"Invalid token: {e}")
 
 
 # OAuth2 scheme for HTTP endpoints
