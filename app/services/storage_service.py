@@ -1,4 +1,4 @@
-"""S3 Service - Handle file uploads and downloads to AWS S3"""
+"""Storage Service - Handle file uploads and downloads to object/blob storage (AWS S3)"""
 
 import os
 from datetime import timedelta
@@ -8,10 +8,10 @@ import boto3
 from botocore.exceptions import ClientError
 
 
-class S3Service:
-    """Service for handling S3 file operations
+class StorageService:
+    """Service for handling object/blob storage operations (AWS S3)
 
-    S3 Structure:
+    Storage Structure:
     - Documents (hierarchical): users/{user_id}/conversations/{conversation_id}/documents/{document_id}/{filename}
     - Summaries (flat): summaries/{reference_number}.pdf and summaries/{reference_number}.md
     """
@@ -166,6 +166,6 @@ class S3Service:
 
 
 # Dependency injection
-def get_s3_service() -> S3Service:
-    """FastAPI dependency for S3 service"""
-    return S3Service()
+def get_storage_service() -> StorageService:
+    """FastAPI dependency for storage service"""
+    return StorageService()
