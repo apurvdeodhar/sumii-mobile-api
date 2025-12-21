@@ -25,7 +25,7 @@ class ConversationOrchestrator:
         Decision Logic:
         1. Summary already generated → Router (handle new questions)
         2. Analysis done, no summary → Summary (generate final document)
-        3. Facts complete, no analysis → Reasoning (apply BGB law)
+        3. Facts complete, no analysis → Reasoning (analyze and connect facts)
         4. Facts incomplete → Intake (collect more facts)
 
         Args:
@@ -49,7 +49,7 @@ class ConversationOrchestrator:
             return "summary"
 
         elif facts_complete and not analysis_done:
-            # All facts collected - Analyze with BGB
+            # All facts collected - Analyze and connect facts
             return "reasoning"
 
         else:

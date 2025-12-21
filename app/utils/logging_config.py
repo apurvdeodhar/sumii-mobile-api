@@ -65,9 +65,9 @@ def setup_logging() -> None:
     logging.getLogger("sqlalchemy").setLevel(logging.CRITICAL)
 
     # Uvicorn - configure loggers
-    # Note: uvicorn.error is misleading - it logs all messages, not just errors
-    # We suppress uvicorn.error to WARNING to reduce noise (startup/shutdown messages)
-    logging.getLogger("uvicorn.error").setLevel(logging.WARNING)
+    # Note: uvicorn.error logs all messages (not just errors) including startup/shutdown
+    # Keep at INFO to see server startup and important messages
+    logging.getLogger("uvicorn.error").setLevel(logging.INFO)
     # Keep uvicorn.access at INFO to see HTTP requests (GET /health 200 OK, etc.)
     logging.getLogger("uvicorn.access").setLevel(logging.INFO)
 

@@ -1,7 +1,7 @@
 """Mistral Document Library Management
 
 Programmatic management of Mistral AI Document Libraries for RAG (Retrieval-Augmented Generation).
-Provides BGB legal knowledge, case examples, and templates to agents.
+Provides interviewing skills, real-world examples, and summary templates to agents.
 """
 
 from pathlib import Path
@@ -15,9 +15,9 @@ from app.config import settings
 class DocumentLibraryService:
     """Manage Mistral document libraries programmatically
 
-    This service creates and manages document libraries for the Sumii legal AI platform.
-    Libraries are shared with agents to provide them with legal knowledge (BGB sections),
-    case examples, and templates for generating summaries.
+    This service creates and manages document libraries for the Sumii lawyer assistant platform.
+    Libraries are shared with agents to provide them with interviewing skills, real-world examples,
+    and templates for generating lawyer-ready summaries.
 
     Attributes:
         client: Mistral AI client instance
@@ -43,43 +43,68 @@ class DocumentLibraryService:
         """
         # Create library
         library = self.client.beta.libraries.create(
-            name="Sumii Legal Knowledge Base",
-            description="German civil law (BGB), case examples, and legal templates for Sumii AI agents",
+            name="Sumii Interviewing & Summary Knowledge Base",
+            description=(
+                "Interviewing skills, real-world examples, " "and lawyer-ready summary templates for Sumii AI agents"
+            ),
         )
 
         self.library_id = library.id
         return library.id
 
-    def upload_bgb_sections(self) -> None:
-        """Upload BGB Mietrecht sections to library
+    def upload_interviewing_skills(self) -> None:
+        """Upload interviewing skills guide to library
 
-        Uploads German Civil Code (BGB) rental law sections (§535-§577a) to the library.
-        This provides agents with legal knowledge for analyzing rental law cases.
+        Uploads empathetic interviewing techniques and questioning frameworks for legal situations.
+        This provides agents with knowledge on how to gather facts without overwhelming users.
 
         Raises:
-            FileNotFoundError: If BGB sections file doesn't exist
+            FileNotFoundError: If interviewing skills file doesn't exist
             Exception: If upload fails
         """
         if not self.library_id:
             raise ValueError("Library must be created before uploading documents")
 
-        # Phase 2: Complete library
-        bgb_path = Path("docs/library/bgb_mietrecht_sections.md")
+        skills_path = Path("docs/library/interviewing_skills.md")
 
-        if not bgb_path.exists():
-            raise FileNotFoundError(f"BGB sections file not found: {bgb_path}")
+        if not skills_path.exists():
+            raise FileNotFoundError(f"Interviewing skills file not found: {skills_path}")
 
-        with open(bgb_path, "rb") as f:
+        with open(skills_path, "rb") as f:
             self.client.beta.libraries.documents.upload(
                 library_id=self.library_id,
-                file=File(file_name=bgb_path.name, content=f.read()),
+                file=File(file_name=skills_path.name, content=f.read()),
+            )
+
+    def upload_lawyer_ready_summaries_guide(self) -> None:
+        """Upload lawyer-ready summaries guide
+
+        Uploads the guide on format and structure for creating summaries that lawyers can quickly understand.
+        This provides agents with knowledge on how to structure information for legal professionals.
+
+        Raises:
+            FileNotFoundError: If summaries guide file doesn't exist
+            Exception: If upload fails
+        """
+        if not self.library_id:
+            raise ValueError("Library must be created before uploading documents")
+
+        summaries_guide_path = Path("docs/library/lawyer_ready_summaries.md")
+
+        if not summaries_guide_path.exists():
+            raise FileNotFoundError(f"Lawyer-ready summaries guide file not found: {summaries_guide_path}")
+
+        with open(summaries_guide_path, "rb") as f:
+            self.client.beta.libraries.documents.upload(
+                library_id=self.library_id,
+                file=File(file_name=summaries_guide_path.name, content=f.read()),
             )
 
     def upload_legal_template(self) -> None:
         """Upload Sumii case report template
 
-        Uploads the forensic analysis template that Summary Agent uses to generate
-        legal summaries in the correct format.
+        Uploads the template that Summary Agent uses to generate
+        summaries in the correct format.
 
         Raises:
             FileNotFoundError: If template file doesn't exist
@@ -88,7 +113,6 @@ class DocumentLibraryService:
         if not self.library_id:
             raise ValueError("Library must be created before uploading documents")
 
-        # Phase 1: MVP library (existing template)
         template_path = Path("docs/library/templates/SumiiCaseReportTemplate.md")
 
         if not template_path.exists():
@@ -100,37 +124,38 @@ class DocumentLibraryService:
                 file=File(file_name=template_path.name, content=f.read()),
             )
 
-    def upload_case_examples(self) -> None:
-        """Upload case law examples
+    def upload_real_world_examples(self) -> None:
+        """Upload real-world interview examples
 
-        Uploads example court rulings (BGH decisions) for rental law cases.
-        Provides agents with precedents for legal analysis.
+        Uploads examples of successful empathetic interviews with users in legal situations.
+        Provides agents with concrete examples of how to gather facts naturally.
 
         Raises:
-            FileNotFoundError: If case examples file doesn't exist
+            FileNotFoundError: If real-world examples file doesn't exist
             Exception: If upload fails
         """
         if not self.library_id:
             raise ValueError("Library must be created before uploading documents")
 
-        # Phase 2: Complete library
-        cases_path = Path("docs/library/case_examples_mietrecht.md")
+        examples_path = Path("docs/library/real_world_examples.md")
 
-        if not cases_path.exists():
-            raise FileNotFoundError(f"Case examples file not found: {cases_path}")
+        if not examples_path.exists():
+            raise FileNotFoundError(f"Real-world examples file not found: {examples_path}")
 
-        with open(cases_path, "rb") as f:
+        with open(examples_path, "rb") as f:
             self.client.beta.libraries.documents.upload(
                 library_id=self.library_id,
-                file=File(file_name=cases_path.name, content=f.read()),
+                file=File(file_name=examples_path.name, content=f.read()),
             )
 
     def setup_mvp_library(self) -> str:
-        """Create MVP library with template only (Phase 1)
+        """Create MVP library with essential content
 
-        Minimal viable library for initial testing:
+        Minimal viable library:
         1. Creates library
-        2. Uploads legal template only
+        2. Uploads interviewing skills guide
+        3. Uploads lawyer-ready summaries guide
+        4. Uploads legal template
 
         Returns:
             library_id: ID of the configured library
@@ -141,19 +166,22 @@ class DocumentLibraryService:
         # Create library
         library_id = self.create_sumii_library()
 
-        # Phase 1: Upload template only
+        # Upload essential content
+        self.upload_interviewing_skills()
+        self.upload_lawyer_ready_summaries_guide()
         self.upload_legal_template()
 
         return library_id
 
     def setup_complete_library(self) -> str:
-        """Create library and upload all documents (Phase 2)
+        """Create library and upload all documents
 
         Complete library for production use:
         1. Creates a new Mistral document library
-        2. Uploads BGB sections
-        3. Uploads legal template
-        4. Uploads case examples
+        2. Uploads interviewing skills guide
+        3. Uploads real-world examples
+        4. Uploads lawyer-ready summaries guide
+        5. Uploads legal template
 
         Returns:
             library_id: ID of the configured library
@@ -164,10 +192,11 @@ class DocumentLibraryService:
         # Create library
         library_id = self.create_sumii_library()
 
-        # Phase 2: Upload all documents
-        self.upload_bgb_sections()
+        # Upload all documents
+        self.upload_interviewing_skills()
+        self.upload_real_world_examples()
+        self.upload_lawyer_ready_summaries_guide()
         self.upload_legal_template()
-        self.upload_case_examples()
 
         return library_id
 
