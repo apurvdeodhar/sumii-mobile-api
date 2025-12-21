@@ -243,21 +243,27 @@ async def websocket_chat(
         "timestamp": "2025-01-25T10:05:10Z"
     }
     """
-    # Verify JWT token
+    # Verify JWT token (fastapi-users format: sub contains user ID UUID)
     try:
         payload = verify_token_ws(token)
-        user_email = payload.get("sub")
-        if not user_email:
+        user_id_str = payload.get("sub")  # fastapi-users stores user ID (UUID) in 'sub'
+        if not user_id_str:
             await websocket.close(code=status.WS_1008_POLICY_VIOLATION, reason="Invalid token")
             return
-    except Exception:
-        await websocket.close(code=status.WS_1008_POLICY_VIOLATION, reason="Invalid token")
+
+        # Convert UUID string to UUID object
+        try:
+            user_id = UUID(user_id_str)
+        except ValueError:
+            await websocket.close(code=status.WS_1008_POLICY_VIOLATION, reason="Invalid user ID in token")
+            return
+    except Exception as e:
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION, reason=f"Invalid token: {str(e)}")
         return
 
-    # Get user from database
-
-    result = await db.execute(select(User).where(User.email == user_email))
-    user = result.scalar_one_or_none()
+    # Get user from database by ID (fastapi-users uses ID, not email)
+    result = await db.execute(select(User).where(User.id == user_id))
+    user = result.unique().scalar_one_or_none()
     if not user:
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION, reason="User not found")
         return
@@ -270,7 +276,7 @@ async def websocket_chat(
         return
 
     result = await db.execute(select(Conversation).where(Conversation.id == conversation_uuid))
-    conversation = result.scalar_one_or_none()
+    conversation = result.unique().scalar_one_or_none()
 
     if not conversation:
         await websocket.close(code=status.WS_1003_UNSUPPORTED_DATA, reason="Conversation not found")

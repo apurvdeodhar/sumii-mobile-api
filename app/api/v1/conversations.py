@@ -17,7 +17,7 @@ from app.schemas.conversation import (
     ConversationUpdate,
     ConversationWithMessages,
 )
-from app.utils.security import get_current_user
+from app.users import current_active_user
 
 router = APIRouter()
 
@@ -30,7 +30,7 @@ router = APIRouter()
 )
 async def create_conversation(
     conversation_data: ConversationCreate,
-    current_user: Annotated[User, Depends(get_current_user)],
+    current_user: Annotated[User, Depends(current_active_user)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> Conversation:
     """Create a new conversation for the authenticated user
@@ -60,7 +60,7 @@ async def create_conversation(
     summary="List all user conversations",
 )
 async def list_conversations(
-    current_user: Annotated[User, Depends(get_current_user)],
+    current_user: Annotated[User, Depends(current_active_user)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> list[Conversation]:
     """Retrieve all conversations for the authenticated user
@@ -83,7 +83,7 @@ async def list_conversations(
 )
 async def get_conversation(
     conversation_id: UUID,
-    current_user: Annotated[User, Depends(get_current_user)],
+    current_user: Annotated[User, Depends(current_active_user)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> Conversation:
     """Retrieve a single conversation with all messages
@@ -124,7 +124,7 @@ async def get_conversation(
 async def update_conversation(
     conversation_id: UUID,
     conversation_data: ConversationUpdate,
-    current_user: Annotated[User, Depends(get_current_user)],
+    current_user: Annotated[User, Depends(current_active_user)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> Conversation:
     """Update conversation metadata
@@ -168,7 +168,7 @@ async def update_conversation(
 )
 async def delete_conversation(
     conversation_id: UUID,
-    current_user: Annotated[User, Depends(get_current_user)],
+    current_user: Annotated[User, Depends(current_active_user)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> None:
     """Delete a conversation and all associated messages

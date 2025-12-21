@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
 from app.models.conversation import Conversation
 from app.models.user import User
-from app.utils.security import get_current_user
+from app.users import current_active_user
 
 router = APIRouter(prefix="/api/v1/status", tags=["status"])
 
@@ -104,7 +104,7 @@ async def agent_status():
 
 @router.get("/conversations/{conversation_id}")
 async def conversation_progress(
-    conversation_id: str, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
+    conversation_id: str, current_user: User = Depends(current_active_user), db: AsyncSession = Depends(get_db)
 ):
     """Conversation progress tracking
 
@@ -144,7 +144,7 @@ async def conversation_progress(
                     "status": "pending"
                 }
             },
-            "next_step": "Reasoning Agent analyzing with BGB",
+            "next_step": "Reasoning Agent analyzing and connecting facts",
             "timestamp": "2025-10-26T20:00:00Z"
         }
     """
@@ -190,7 +190,7 @@ async def conversation_progress(
     elif conversation.analysis_done:
         next_step = "Generating legal summary document"
     elif all_facts_collected:
-        next_step = "Reasoning Agent analyzing with German Civil Law (BGB)"
+        next_step = "Reasoning Agent analyzing and connecting facts"
     else:
         missing_facts = [fact for fact, collected in facts_completeness.items() if not collected]
         next_step = f"Intake Agent collecting facts: {', '.join(missing_facts)}"
