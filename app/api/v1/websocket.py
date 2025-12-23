@@ -8,8 +8,15 @@ from datetime import datetime, timezone
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect, status
-from mistralai import Mistral
-from mistralai.extra.run.context import RunContext
+from mistralai import (
+    AgentHandoffDoneEvent,
+    FunctionCallEvent,
+    FunctionResultEntry,
+    MessageOutputEvent,
+    Mistral,
+    ResponseErrorEvent,
+    ToolExecutionStartedEvent,
+)
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -20,6 +27,106 @@ from app.services.agents import MistralAgentsService, get_mistral_agents_service
 from app.utils.security import verify_token_ws
 
 router = APIRouter()
+
+
+async def _process_single_event(
+    event, websocket: WebSocket, full_response_parts: list, current_agent_name: str
+) -> str | tuple[str, str | None, str, str] | None:
+    """Process a single Mistral event and return action indicator.
+
+    Returns:
+        None - normal event processed
+        "handoff" - handoff event occurred
+        "done" - stream complete
+        "error" - error occurred
+        ("function_call", tool_call_id, function_name, arguments) - function call to handle
+    """
+    # Use isinstance matching like the cookbook pattern
+    match event.data:
+        case MessageOutputEvent():
+            # Handle message output
+            content = event.data.content
+            if content:
+                # Content can be a list of chunks or a string
+                if isinstance(content, list):
+                    # Extract text from chunks
+                    text_content = ""
+                    for chunk in content:
+                        if hasattr(chunk, "text"):
+                            text_content += chunk.text
+                        elif hasattr(chunk, "get"):
+                            text_content += chunk.get("text", "")
+                        elif isinstance(chunk, str):
+                            text_content += chunk
+                    content = text_content
+
+                if content:
+                    full_response_parts.append(content)
+                    await websocket.send_json(
+                        {"type": "message_chunk", "content": content, "agent": current_agent_name}
+                    )
+            return None
+
+        case AgentHandoffDoneEvent():
+            # Agent handed off to next agent
+            next_agent = getattr(event.data, "next_agent_name", "unknown")
+            await websocket.send_json(
+                {
+                    "type": "agent_handoff",
+                    "agent_name": next_agent,
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                }
+            )
+            return "handoff"
+
+        case ToolExecutionStartedEvent():
+            # Tool execution started
+            tool_name = getattr(event.data, "name", "unknown")
+            await websocket.send_json(
+                {
+                    "type": "tool_execution",
+                    "tool": tool_name,
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                }
+            )
+            return None
+
+        case FunctionCallEvent():
+            # Agent is calling a function/tool - capture details
+            tool_call_id = getattr(event.data, "tool_call_id", None)
+            function_name = getattr(event.data, "name", "unknown")
+            arguments = getattr(event.data, "arguments", "")
+            await websocket.send_json(
+                {
+                    "type": "function_call",
+                    "tool_call_id": tool_call_id,
+                    "function": function_name,
+                    "arguments": arguments,
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                }
+            )
+            # Return special indicator for function call handling
+            return ("function_call", tool_call_id, function_name, arguments)
+
+        case ResponseErrorEvent():
+            # Error occurred
+            error_msg = getattr(event.data, "message", "Unknown error")
+            await websocket.send_json(
+                {
+                    "type": "error",
+                    "error": str(error_msg),
+                    "code": "conversation_error",
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                }
+            )
+            return "error"
+
+        case _:
+            # Unknown event type - check for completion indicators
+            event_type = getattr(event, "event", "") or str(type(event.data))
+            if "done" in str(event_type).lower() or "complete" in str(event_type).lower():
+                return "done"
+            return None
 
 
 async def process_with_agents(
@@ -60,7 +167,7 @@ async def process_with_agents(
 
         # Track current agent for database updates
         current_agent_name = "router"
-        full_response_parts = []
+        full_response_parts: list[str] = []
 
         # Send agent_start event
         agent_start_payload = {
@@ -70,68 +177,91 @@ async def process_with_agents(
         }
         await websocket.send_json(agent_start_payload)
 
-        # Use RunContext for conversation lifecycle management
-        async with RunContext(agent_id=router_id) as run_ctx:
-            # Stream conversation with automatic handoffs
-            stream = await client.beta.conversations.run_stream_async(
-                run_ctx=run_ctx,
+        # Check if we have an existing Mistral conversation to continue
+        existing_conv_id = conversation.mistral_conversation_id
+
+        # Use correct API pattern from Mistral cookbooks:
+        # - start_stream() for first message
+        # - append_stream() for subsequent messages
+        if existing_conv_id:
+            # Continue existing conversation - context preserved
+            response = client.beta.conversations.append_stream(
+                conversation_id=existing_conv_id,
+                inputs=user_message_content,
+            )
+        else:
+            # Start new conversation
+            response = client.beta.conversations.start_stream(
+                agent_id=router_id,
                 inputs=user_message_content,
             )
 
-            # Process events from conversation stream
-            async for event in stream:
-                # Handle different event types
-                match event.event:
-                    case "agent.handoff.started":
-                        # Handoff initiated by agent
-                        previous_agent = event.data.previous_agent_name
-                        await websocket.send_json(
-                            {
-                                "type": "agent_handoff_started",
-                                "from_agent": previous_agent,
-                                "timestamp": event.data.created_at.isoformat(),
-                            }
+        # Process events from stream (using context manager like cookbook)
+        # Track function call accumulation (cookbook pattern from travel_assistant)
+        pending_tool_call_id: str | None = None
+        pending_function_name: str = ""
+        pending_arguments: str = ""
+
+        with response as event_stream:
+            # Capture conversation_id from first event (cookbook pattern line 138)
+            first_event = next(iter(event_stream))
+            if not existing_conv_id and hasattr(first_event.data, "conversation_id"):
+                conversation.mistral_conversation_id = first_event.data.conversation_id
+                await db.commit()
+
+            # Process first event
+            first_result = await _process_single_event(first_event, websocket, full_response_parts, current_agent_name)
+            if isinstance(first_result, tuple) and first_result[0] == "function_call":
+                pending_tool_call_id = first_result[1]
+                pending_function_name = first_result[2]
+                pending_arguments += first_result[3] or ""
+
+            # Process remaining events
+            for event in event_stream:
+                result = await _process_single_event(event, websocket, full_response_parts, current_agent_name)
+                if result == "handoff":
+                    # Update current agent from handoff
+                    current_agent_name = getattr(event.data, "next_agent_name", current_agent_name)
+                    current_agent_name = current_agent_name.lower().replace(" ", "_").replace("legal_", "")
+                elif result == "done":
+                    break
+                elif result == "error":
+                    return
+                elif isinstance(result, tuple) and result[0] == "function_call":
+                    # Accumulate function call data (cookbook pattern line 174)
+                    pending_tool_call_id = result[1]
+                    pending_function_name = result[2]
+                    pending_arguments += result[3] or ""
+
+        # Handle pending function call AFTER stream completes (cookbook pattern lines 182-186)
+        if pending_tool_call_id:
+            # Create function result (our functions are data collectors, return success)
+            function_result = FunctionResultEntry(
+                tool_call_id=pending_tool_call_id,
+                result=f"Function {pending_function_name} executed successfully. Data collected.",
+            )
+
+            # Get conversation ID for append
+            conv_id = conversation.mistral_conversation_id
+            if conv_id:
+                # Send function result back to conversation
+                continuation = client.beta.conversations.append_stream(
+                    conversation_id=conv_id,
+                    inputs=[function_result],
+                )
+                # Process continuation events
+                with continuation as cont_stream:
+                    for cont_event in cont_stream:
+                        cont_result = await _process_single_event(
+                            cont_event, websocket, full_response_parts, current_agent_name
                         )
-
-                    case "agent.handoff.done":
-                        # Handoff completed, new agent active
-                        next_agent = event.data.next_agent_name
-                        current_agent_name = (
-                            next_agent.lower().replace(" ", "_").replace("legal_", "")
-                        )  # Map to our names
-                        await websocket.send_json(
-                            {
-                                "type": "agent_handoff_done",
-                                "to_agent": next_agent,
-                                "timestamp": event.data.created_at.isoformat(),
-                            }
-                        )
-
-                    case "message.output.delta":
-                        # Stream agent response chunks
-                        content = event.data.content
-                        if content:
-                            full_response_parts.append(content)
-                            await websocket.send_json(
-                                {"type": "message_chunk", "content": content, "agent": current_agent_name}
-                            )
-
-                    case "conversation.response.done":
-                        # Conversation complete
-                        break
-
-                    case "conversation.response.error":
-                        # Handle errors
-                        error_msg = event.data.error if hasattr(event.data, "error") else "Unknown error"
-                        await websocket.send_json(
-                            {
-                                "type": "error",
-                                "error": error_msg,
-                                "code": "conversation_error",
-                                "timestamp": datetime.now(timezone.utc).isoformat(),
-                            }
-                        )
-                        return
+                        if cont_result == "handoff":
+                            current_agent_name = getattr(cont_event.data, "next_agent_name", current_agent_name)
+                            current_agent_name = current_agent_name.lower().replace(" ", "_").replace("legal_", "")
+                        elif cont_result == "done":
+                            break
+                        elif cont_result == "error":
+                            return
 
         # Combine response chunks
         full_response = "".join(full_response_parts)
@@ -333,9 +463,13 @@ async def websocket_chat(
             )
 
     except WebSocketDisconnect:
-        # Client disconnected
+        # Client disconnected - this is normal, do nothing
         pass
     except Exception as e:
-        # Unexpected error
-        await websocket.send_json({"type": "error", "error": str(e), "code": "internal_error"})
-        await websocket.close(code=status.WS_1011_INTERNAL_ERROR)
+        # Unexpected error - try to send error to client if connection is still open
+        try:
+            await websocket.send_json({"type": "error", "error": str(e), "code": "internal_error"})
+            await websocket.close(code=status.WS_1011_INTERNAL_ERROR)
+        except RuntimeError:
+            # Connection already closed, nothing to do
+            pass

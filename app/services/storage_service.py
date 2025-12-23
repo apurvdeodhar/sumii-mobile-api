@@ -31,7 +31,7 @@ class StorageService:
             aws_secret_access_key=os.getenv("AWS_SECRET_ACCESS_KEY"),
             region_name=os.getenv("AWS_REGION", "eu-central-1"),
         )
-        self.bucket_name = os.getenv("S3_BUCKET_NAME", "sumii-mobile-api-local")
+        self.bucket_name = os.getenv("S3_BUCKET", "sumii-local-pdfs")
 
     def upload_document(
         self,

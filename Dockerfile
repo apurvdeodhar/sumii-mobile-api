@@ -3,11 +3,18 @@
 
 FROM python:3.13-slim AS base
 
-# Install system dependencies
+# Install system dependencies (including PDF generation libs for WeasyPrint)
 RUN apt-get update && apt-get install -y \
     gcc \
     postgresql-client \
     curl \
+    # WeasyPrint dependencies for PDF generation
+    libglib2.0-0 \
+    libpango-1.0-0 \
+    libpangocairo-1.0-0 \
+    libcairo2 \
+    libgdk-pixbuf-2.0-0 \
+    libffi-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # Install uv

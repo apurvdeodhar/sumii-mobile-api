@@ -8,9 +8,26 @@ variable "aws_region" {
 }
 
 variable "environment" {
-  description = "Environment (dev, staging, prod)"
+  description = "Environment (local, dev, staging, prod)"
   type        = string
   default     = "dev"
+  validation {
+    condition     = contains(["local", "dev", "staging", "prod"], var.environment)
+    error_message = "Environment must be: local, dev, staging, or prod"
+  }
+}
+
+# Feature Toggles
+variable "enable_ecs" {
+  description = "Enable ECS-related resources (IAM roles). Disable for local dev."
+  type        = bool
+  default     = false
+}
+
+variable "enable_notifications" {
+  description = "Enable SNS/SQS notification infrastructure. Disable for local dev."
+  type        = bool
+  default     = false
 }
 
 variable "project_name" {

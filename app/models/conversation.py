@@ -83,6 +83,9 @@ class Conversation(Base):
     # Agent orchestration
     current_agent = Column(String(50), nullable=True)  # Current agent: "router", "intake", "reasoning", "summary", null
 
+    # Mistral context persistence - store conversation ID to maintain context across messages
+    mistral_conversation_id = Column(String(255), nullable=True)  # Mistral's conversation ID for context continuity
+
     # Conversation state metadata (for dynamic orchestration)
     facts_collected = Column(JSONB, nullable=True)  # All collected facts
     analysis_done = Column(Boolean, default=False, nullable=False)  # Reasoning completed

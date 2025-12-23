@@ -85,6 +85,11 @@ Use your handoff capability to connect users to the right specialist quickly!
     return factory.create_agent(
         model="mistral-medium-2505",
         name="Legal Router Agent",
-        description="Orchestrates legal intake workflow by routing users to specialized agents",
+        description="""Agent that routes user legal queries to the correct specialist agent.
+Sample queries this agent receives:
+1. "Hallo, ich brauche Hilfe mit meinem Vermieter" -> route to intake-agent
+2. "My landlord won't fix the heating" -> route to intake-agent
+3. "I have a legal question about my rent" -> route to intake-agent
+Always route legal intake queries to the intake-agent for fact collection.""",
         instructions=instructions,
     )

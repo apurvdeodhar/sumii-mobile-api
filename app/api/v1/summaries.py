@@ -172,6 +172,13 @@ async def create_summary(
 
         return _summary_to_response(summary, storage_service)
 
+    except ValueError as e:
+        # Validation errors (e.g., no messages in conversation)
+        logger.warning(f"Summary validation failed: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        ) from e
     except Exception as e:
         logger.error(f"Failed to generate summary: {e}", exc_info=True)
         await db.rollback()

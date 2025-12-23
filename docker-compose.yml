@@ -35,6 +35,21 @@ services:
       - SECRET_KEY=${SECRET_KEY:-development-secret-key-change-in-production}
       - ALGORITHM=HS256
       - ACCESS_TOKEN_EXPIRE_MINUTES=60
+      # Google OAuth
+      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID:-}
+      - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET:-}
+      # AWS S3 (from Terraform: sumii-mobile-api/infrastructure)
+      # Credentials: Uses mounted ~/.aws/ folder from host (see volumes section)
+      - AWS_REGION=${AWS_REGION:-eu-central-1}
+      - S3_BUCKET=${S3_BUCKET:-sumii-local-pdfs}
+      - S3_DOCUMENTS_BUCKET=${S3_DOCUMENTS_BUCKET:-sumii-local-documents}
+      # AWS SES (for email sending)
+      - SES_FROM_EMAIL=${SES_FROM_EMAIL:-noreply@sumii.de}
+      - SES_CONFIGURATION_SET=${SES_CONFIGURATION_SET:-sumii-local-ses-config}
+      - FRONTEND_URL=${FRONTEND_URL:-http://localhost:3000}
+      # Anwalt service integration
+      - ANWALT_API_BASE_URL=${ANWALT_API_BASE_URL:-http://host.docker.internal:8001}
+      - ANWALT_API_KEY=${ANWALT_API_KEY:-}
     ports:
       - "8000:8000"
     volumes:
@@ -43,6 +58,7 @@ services:
       - ./alembic:/app/alembic
       - ./alembic.ini:/app/alembic.ini
       - ../.cursor:/app/.cursor  # Debug logs volume mount
+      - ~/.aws:/root/.aws:ro  # AWS credentials from host (read-only)
     depends_on:
       postgres:
         condition: service_healthy

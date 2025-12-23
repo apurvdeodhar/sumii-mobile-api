@@ -65,6 +65,20 @@ postgres-data/
 # ===========================
 # OpenTofu / Terraform
 # ===========================
+# Terraform directories and files
+.terraform/
+**/.terraform/
+*.tfstate
+*.tfstate.*
+.terraform.lock.hcl
+terraform.tfvars
+*.tfvars
+crash.log
+.tofu/
+tfplan
+**/tfplan
+
+# Legacy infrastructure paths (if any)
 infrastructure/tofu/.terraform/
 infrastructure/tofu/*.tfstate
 infrastructure/tofu/*.tfstate.*

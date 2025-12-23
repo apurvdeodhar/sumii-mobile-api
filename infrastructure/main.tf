@@ -1,5 +1,5 @@
-# Sumii v2 - Main OpenTofu Configuration
-# 48-Hour MVP Infrastructure: S3, IAM, SES, SNS, SQS, SSL
+# Sumii v2 - Main Terraform Configuration
+# Infrastructure: S3, IAM, SES, SNS, SQS, SSL
 
 terraform {
   required_version = ">= 1.6"
@@ -11,13 +11,13 @@ terraform {
     }
   }
 
-  # Backend configuration - store state in S3
+  # Backend configuration - store state in S3 (created by sumii-global-infra/bootstrap)
   backend "s3" {
-    bucket         = "sumii-tofu-state" # Create this manually first
-    key            = "sumii-v2/tofu.tfstate"
-    region         = "eu-central-1"
-    encrypt        = true
-    dynamodb_table = "sumii-tofu-locks" # For state locking
+    bucket       = "sumii-mobile-api-tf-state"
+    key          = "terraform.tfstate"
+    region       = "eu-central-1"
+    encrypt      = true
+    use_lockfile = true
   }
 }
 

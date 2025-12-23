@@ -147,7 +147,12 @@ for download. The backend will convert it to PDF automatically.
     return factory.create_agent(
         model="mistral-medium-2505",
         name="Legal Summary Agent",
-        description="Generates professional legal summaries in markdown format with BGB references",
+        description="""Agent to generate professional legal summaries in markdown format.
+This agent receives cases AFTER legal reasoning is complete.
+Sample scenarios:
+1. Legal analysis complete -> generate structured markdown summary with BGB references
+2. Case assessment finished -> create downloadable legal document
+This is the final agent in the workflow - no further handoffs.""",
         instructions=instructions,
         tools=[
             SUMMARY_GENERATION_SCHEMA,

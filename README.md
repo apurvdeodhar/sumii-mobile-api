@@ -119,6 +119,7 @@ docker-compose exec backend pytest
 ```
 
 **Test Structure:**
+
 - `tests/unit/` - Fast, isolated unit tests (mocked dependencies)
 - `tests/integration/` - Integration tests (multiple components)
 - `tests/e2e/` - End-to-end tests (complete workflows)
@@ -163,6 +164,7 @@ pytest tests/unit/test_auth.py -v
 ```
 
 **📚 Full Testing Guide:** See [tests/README.md](tests/README.md) for:
+
 - TDD guidelines and workflow
 - Test structure and categories
 - Writing tests best practices
@@ -183,6 +185,7 @@ pytest tests/unit/test_auth.py -v
 ### Configuration
 
 **Environment Variables** (`.env` file):
+
 ```bash
 # Global log level
 LOG_LEVEL=INFO  # DEBUG, INFO, WARNING, ERROR, CRITICAL
@@ -191,6 +194,7 @@ LOG_LEVEL=INFO  # DEBUG, INFO, WARNING, ERROR, CRITICAL
 ### Usage
 
 **In your code** (no changes needed!):
+
 ```python
 import logging
 logger = logging.getLogger(__name__)
@@ -228,6 +232,7 @@ logger.error("Error message")
 ### Core Features ✅
 
 - ✅ **User Authentication** (fastapi-users)
+
   - User registration & login
   - Email verification (AWS SES)
   - Password reset (AWS SES)
@@ -235,32 +240,38 @@ logger.error("Error message")
   - JWT tokens (60-minute expiry)
 
 - ✅ **Conversation Management**
+
   - Create, read, update, delete conversations
   - Message storage and retrieval
   - Conversation state tracking (5W facts, analysis, summaries)
 
 - ✅ **AI Chat Integration** (Mistral AI)
+
   - Real-time WebSocket chat
   - 4 Mistral Agents (Router, Intake, Reasoning, Summary)
   - Dynamic agent orchestration
   - Document library integration (BGB sections, case examples, templates)
 
 - ✅ **Document Management**
+
   - PDF upload to S3
-  - OCR processing (AWS Textract)
+  - OCR processing (Mistral Vision API)
   - Document retrieval and deletion
 
 - ✅ **Legal Summary Generation**
+
   - AI-powered summary generation
   - PDF export (WeasyPrint)
   - S3 storage with pre-signed URLs
 
 - ✅ **Lawyer Integration**
+
   - Lawyer search by location and specialization
   - Case handoff to sumii-anwalt backend
   - Lawyer connection tracking
 
 - ✅ **Notifications**
+
   - Server-Sent Events (SSE) for real-time notifications
   - Email notifications (AWS SES)
   - Webhook endpoint for lawyer responses
@@ -284,10 +295,12 @@ logger.error("Error message")
 ## 🚀 Deployment
 
 ### Local Development
+
 - Docker Compose (PostgreSQL + FastAPI)
 - Hot reload enabled
 
 ### Production (AWS)
+
 - See `infrastructure/tofu/README.md` for OpenTofu deployment
 - ECS Fargate + RDS PostgreSQL + ElastiCache Redis
 - Automated via GitHub Actions
@@ -312,14 +325,15 @@ logger.error("Error message")
 
 ### Test Status
 
-| Category | Status | Coverage |
-|----------|--------|----------|
-| **Unit Tests** | ✅ 100% (44/44) | Fast, isolated, mocked |
-| **Integration Tests** | ✅ 93% (54/58) | Multi-component tests |
-| **E2E Tests** | ✅ 100% (6/6) | Complete workflows |
-| **Overall** | ✅ **96% (104/108)** | Exceeds 80% target |
+| Category              | Status               | Coverage               |
+| --------------------- | -------------------- | ---------------------- |
+| **Unit Tests**        | ✅ 100% (44/44)      | Fast, isolated, mocked |
+| **Integration Tests** | ✅ 93% (54/58)       | Multi-component tests  |
+| **E2E Tests**         | ✅ 100% (6/6)        | Complete workflows     |
+| **Overall**           | ✅ **96% (104/108)** | Exceeds 80% target     |
 
 **Test Structure:**
+
 - `tests/unit/` - Fast, isolated unit tests (mocked dependencies)
 - `tests/integration/` - Integration tests (multiple components)
 - `tests/e2e/` - End-to-end tests (complete workflows)

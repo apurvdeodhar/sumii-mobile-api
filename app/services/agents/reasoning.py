@@ -101,7 +101,12 @@ NOT legal lecture = Explain everything
     return factory.create_agent(
         model="mistral-medium-2505",
         name="Legal Reasoning Agent",
-        description="Conducts professional legal interview using BGB knowledge to ask intelligent questions",
+        description="""Agent to analyze legal cases using German civil law (BGB) knowledge.
+This agent receives cases AFTER legal facts have been collected by the intake-agent.
+Sample scenarios:
+1. All facts collected about rental dispute -> analyze case strength using BGB §§535-580
+2. Complete tenant information provided -> assess legal options and success probability
+After analysis complete, hand off to summary-agent for professional documentation.""",
         instructions=instructions,
         tools=[
             LEGAL_REASONING_SCHEMA,

@@ -1,8 +1,10 @@
 # IAM Roles and Policies for ECS Fargate and Application
+# These are only created when enable_ecs = true
 
 # ECS Task Execution Role (for pulling images, logging)
 resource "aws_iam_role" "ecs_task_execution_role" {
-  name = "${local.common_name}-ecs-task-execution-role"
+  count = var.enable_ecs ? 1 : 0
+  name  = "${local.common_name}-ecs-task-execution-role"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -22,14 +24,16 @@ resource "aws_iam_role" "ecs_task_execution_role" {
 
 # Attach AWS managed policy for ECS task execution
 resource "aws_iam_role_policy_attachment" "ecs_task_execution_policy" {
-  role       = aws_iam_role.ecs_task_execution_role.name
+  count      = var.enable_ecs ? 1 : 0
+  role       = aws_iam_role.ecs_task_execution_role[0].name
   policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
 }
 
 # Allow ECS to read secrets from Secrets Manager
 resource "aws_iam_role_policy" "ecs_secrets_policy" {
-  name = "${local.common_name}-ecs-secrets-policy"
-  role = aws_iam_role.ecs_task_execution_role.id
+  count = var.enable_ecs ? 1 : 0
+  name  = "${local.common_name}-ecs-secrets-policy"
+  role  = aws_iam_role.ecs_task_execution_role[0].id
 
   policy = jsonencode({
     Version = "2012-10-17"
@@ -49,7 +53,8 @@ resource "aws_iam_role_policy" "ecs_secrets_policy" {
 
 # ECS Task Role (for application permissions)
 resource "aws_iam_role" "ecs_task_role" {
-  name = "${local.common_name}-ecs-task-role"
+  count = var.enable_ecs ? 1 : 0
+  name  = "${local.common_name}-ecs-task-role"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -69,8 +74,9 @@ resource "aws_iam_role" "ecs_task_role" {
 
 # S3 Access Policy for Task Role
 resource "aws_iam_role_policy" "s3_access_policy" {
-  name = "${local.common_name}-s3-access-policy"
-  role = aws_iam_role.ecs_task_role.id
+  count = var.enable_ecs ? 1 : 0
+  name  = "${local.common_name}-s3-access-policy"
+  role  = aws_iam_role.ecs_task_role[0].id
 
   policy = jsonencode({
     Version = "2012-10-17"
@@ -96,8 +102,9 @@ resource "aws_iam_role_policy" "s3_access_policy" {
 
 # SES Send Email Policy
 resource "aws_iam_role_policy" "ses_send_policy" {
-  name = "${local.common_name}-ses-send-policy"
-  role = aws_iam_role.ecs_task_role.id
+  count = var.enable_ecs ? 1 : 0
+  name  = "${local.common_name}-ses-send-policy"
+  role  = aws_iam_role.ecs_task_role[0].id
 
   policy = jsonencode({
     Version = "2012-10-17"
@@ -119,8 +126,9 @@ resource "aws_iam_role_policy" "ses_send_policy" {
 
 # SNS Publish Policy (for push notifications)
 resource "aws_iam_role_policy" "sns_publish_policy" {
-  name = "${local.common_name}-sns-publish-policy"
-  role = aws_iam_role.ecs_task_role.id
+  count = var.enable_ecs && var.enable_notifications ? 1 : 0
+  name  = "${local.common_name}-sns-publish-policy"
+  role  = aws_iam_role.ecs_task_role[0].id
 
   policy = jsonencode({
     Version = "2012-10-17"
@@ -140,8 +148,9 @@ resource "aws_iam_role_policy" "sns_publish_policy" {
 
 # SQS Access Policy (for notification queue)
 resource "aws_iam_role_policy" "sqs_access_policy" {
-  name = "${local.common_name}-sqs-access-policy"
-  role = aws_iam_role.ecs_task_role.id
+  count = var.enable_ecs && var.enable_notifications ? 1 : 0
+  name  = "${local.common_name}-sqs-access-policy"
+  role  = aws_iam_role.ecs_task_role[0].id
 
   policy = jsonencode({
     Version = "2012-10-17"
@@ -158,13 +167,13 @@ resource "aws_iam_role_policy" "sqs_access_policy" {
   })
 }
 
-# Outputs
+# Outputs (conditional)
 output "ecs_task_execution_role_arn" {
-  value       = aws_iam_role.ecs_task_execution_role.arn
+  value       = var.enable_ecs ? aws_iam_role.ecs_task_execution_role[0].arn : null
   description = "ARN of ECS task execution role"
 }
 
 output "ecs_task_role_arn" {
-  value       = aws_iam_role.ecs_task_role.arn
+  value       = var.enable_ecs ? aws_iam_role.ecs_task_role[0].arn : null
   description = "ARN of ECS task role"
 }

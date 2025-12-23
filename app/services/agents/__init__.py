@@ -39,20 +39,41 @@ class MistralAgentsService:
         self.agents: dict[str, str] = {}
 
     async def initialize_all_agents(self) -> dict[str, str]:
-        """Create all 4 agents and store their IDs
+        """Create all 4 agents and configure handoffs via Mistral API
 
-        With Conversations API, handoffs are configured via agent instructions,
-        not via UPDATE calls. Mistral's Conversations API handles handoff orchestration
-        automatically when using handoff_execution="server".
+        The agent workflow is:
+        Router → Intake → Reasoning → Summary
+
+        Handoffs are configured via client.beta.agents.update() to enable
+        proper agent orchestration with Mistral's Conversations API.
 
         Returns:
             dict[str, str]: Mapping of agent names to agent IDs
         """
-        # Create all agents (handoffs configured in their instructions)
+        from mistralai import Mistral
+
+        from app.config import settings
+
+        # Create Mistral client
+        client = Mistral(api_key=settings.MISTRAL_API_KEY)
+
+        # Create all agents
         intake_id = create_intake_agent()
         reasoning_id = create_reasoning_agent()
         summary_id = create_summary_agent()
         router_id = create_router_agent()
+
+        # Configure handoffs via Mistral API
+        # Router can hand off to Intake
+        client.beta.agents.update(agent_id=router_id, handoffs=[intake_id])
+
+        # Intake can hand off to Reasoning
+        client.beta.agents.update(agent_id=intake_id, handoffs=[reasoning_id])
+
+        # Reasoning can hand off to Summary
+        client.beta.agents.update(agent_id=reasoning_id, handoffs=[summary_id])
+
+        # Summary is final - no handoffs needed
 
         # Store all agent IDs
         self.agents = {

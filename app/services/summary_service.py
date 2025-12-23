@@ -8,7 +8,6 @@ import json
 import logging
 
 from mistralai import Mistral
-from mistralai.extra.run.context import RunContext
 
 from app.config import settings
 from app.models import Conversation, Message, MessageRole
@@ -55,32 +54,44 @@ class SummaryService:
             if not summary_agent_id:
                 raise Exception("Summary agent not initialized")
 
-            # Build conversation context from messages
-            conversation_context = self._build_conversation_context(conversation)
+            # Validate conversation has messages
+            messages_list = list(conversation.messages) if conversation.messages else []
+            logger.info(f"Generating summary for conversation {conversation.id}, found {len(messages_list)} messages")
 
-            # Call Summary Agent with RunContext
-            async with RunContext(agent_id=summary_agent_id) as run_ctx:
-                # Use run (non-streaming) to get complete response
-                response = await self.client.beta.conversations.run_async(
-                    run_ctx=run_ctx,
-                    inputs=conversation_context,
+            if len(messages_list) == 0:
+                raise ValueError(
+                    "Conversation has no messages. Please chat with the legal assistant " "before generating a summary."
                 )
 
-                # Extract markdown from function call
-                markdown_content, metadata = self._extract_summary_from_response(response)
+            # Build conversation context from messages
+            conversation_context = self._build_conversation_context(conversation)
+            logger.debug(f"Built conversation context: {len(conversation_context)} chars")
 
-                # Save agent message to database
-                if markdown_content:
-                    agent_message = Message(
-                        conversation_id=conversation.id,
-                        role=MessageRole.ASSISTANT,
-                        content=f"Zusammenfassung generiert: {len(markdown_content)} Zeichen",
-                        agent_name="summary",
-                    )
-                    db_session.add(agent_message)
-                    await db_session.commit()
+            if not conversation_context or len(conversation_context) < 50:
+                raise ValueError(f"Conversation context is too short ({len(conversation_context)} chars)")
 
-                return markdown_content, metadata
+            # Call Summary Agent using conversations.start() pattern from cookbook
+            # This avoids the RunContext issues with empty inputs
+            response = await self.client.beta.conversations.start_async(
+                agent_id=summary_agent_id,
+                inputs=conversation_context,
+            )
+
+            # Extract markdown from function call
+            markdown_content, metadata = self._extract_summary_from_response(response)
+
+            # Save agent message to database
+            if markdown_content:
+                agent_message = Message(
+                    conversation_id=conversation.id,
+                    role=MessageRole.ASSISTANT,
+                    content=f"Zusammenfassung generiert: {len(markdown_content)} Zeichen",
+                    agent_name="summary",
+                )
+                db_session.add(agent_message)
+                await db_session.commit()
+
+            return markdown_content, metadata
 
         except Exception as e:
             logger.error(f"Failed to generate summary: {e}", exc_info=True)

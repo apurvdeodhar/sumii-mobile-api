@@ -63,7 +63,7 @@ resource "aws_s3_bucket" "documents" {
 
   tags = {
     Name        = "${local.common_name}-documents"
-    Description = "User uploaded documents (contracts, etc.)"
+    Description = "User uploaded documents"
   }
 }
 
