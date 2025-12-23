@@ -897,17 +897,32 @@ class TestRunner:
             return True
 
         response = self.client.post(
-            f"{API_V1}/summaries", headers=self._auth_headers(), json={"conversation_id": self.ctx.conversation_id}
+            f"{API_V1}/summaries",
+            headers=self._auth_headers(),
+            json={"conversation_id": self.ctx.conversation_id},
         )
 
         if response.status_code == 201:
             data = response.json()
             self.ctx.summary_id = data.get("id")
             self.ctx.summary_markdown = data.get("markdown_content")
+
+            # CRITICAL FIX TEST: Verify summary content is not empty
+            markdown_len = len(self.ctx.summary_markdown or "")
             print_success(f"Summary generated: {self.ctx.summary_id}")
+            print_info(f"Markdown content length: {markdown_len} chars")
             print_debug(f"Reference: {data.get('reference_number')}", self.ctx.verbose)
             print_debug(f"Legal area: {data.get('legal_area')}", self.ctx.verbose)
-            print_debug(f"Case strength: {data.get('case_strength')}", self.ctx.verbose)
+            print_debug(f"Urgency: {data.get('urgency')}", self.ctx.verbose)
+
+            # Verify content is not empty (this was the bug we fixed)
+            if markdown_len == 0:
+                print_error("CRITICAL: Summary markdown content is EMPTY!")
+                self._record_result("Summary: Generate", TestStatus.FAILED, "Empty content")
+                return False
+            elif markdown_len < 100:
+                print_info(f"Warning: Summary content seems short ({markdown_len} chars)")
+
             self._record_result("Summary: Generate", TestStatus.PASSED)
             return True
         elif response.status_code == 400:
@@ -934,19 +949,39 @@ class TestRunner:
             self._record_result("Summary: PDF URL", TestStatus.SKIPPED)
             return True
 
-        response = self.client.get(f"{API_V1}/summaries/{self.ctx.summary_id}/pdf-url", headers=self._auth_headers())
+        response = self.client.get(
+            f"{API_V1}/summaries/{self.ctx.summary_id}/pdf-url",
+            headers=self._auth_headers(),
+        )
 
         if response.status_code == 200:
             data = response.json()
             self.ctx.summary_pdf_url = data.get("pdf_url")
             print_success("PDF URL obtained (expires in 7 days)")
             print_debug(f"URL: {self.ctx.summary_pdf_url[:80]}...", self.ctx.verbose)
+
+            # CRITICAL FIX TEST: Verify PDF is actually downloadable
+            if self.ctx.summary_pdf_url:
+                try:
+                    pdf_response = self.client.get(self.ctx.summary_pdf_url)
+                    if pdf_response.status_code == 200:
+                        pdf_size = len(pdf_response.content)
+                        print_success(f"PDF download verified: {pdf_size} bytes")
+                        if pdf_size < 1000:
+                            print_info(f"Warning: PDF seems small ({pdf_size} bytes)")
+                    else:
+                        print_error(f"PDF download failed: {pdf_response.status_code}")
+                        self._record_result("Summary: PDF URL", TestStatus.FAILED, "Download failed")
+                        return False
+                except Exception as e:
+                    print_info(f"Could not verify PDF download: {e}")
+
             self._record_result("Summary: PDF URL", TestStatus.PASSED)
             return True
         elif response.status_code == 404:
-            print_info("PDF not found (may not have been generated)")
-            self._record_result("Summary: PDF URL", TestStatus.SKIPPED, "Not found")
-            return True
+            print_error("PDF not found - this should not happen after summary generation!")
+            self._record_result("Summary: PDF URL", TestStatus.FAILED, "PDF 404")
+            return False
         else:
             print_error(f"PDF URL failed: {response.status_code}")
             self._record_result("Summary: PDF URL", TestStatus.FAILED)
