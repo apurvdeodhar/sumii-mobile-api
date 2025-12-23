@@ -3,14 +3,17 @@
 This package provides specialized AI agents for Sumii's legal intake process:
 - Router Agent: Orchestrates workflow
 - Intake Agent: Collects facts (5W framework)
-- Reasoning Agent: Applies German Civil Law (BGB)
-- Summary Agent: Generates professional documents
+- Fact Completion Agent: Gathers additional details
+- Summary Agent: Generates professional documents for lawyers
 
 Architecture: Mistral Agents API (cloud-hosted)
 Benefits: Fast implementation, built-in orchestration, production-ready
 
+IMPORTANT: Sumii does NOT provide legal analysis or advice.
+Legal analysis is done by lawyers. Sumii only collects facts.
+
 Agent Flow:
-User → Router → Intake → Reasoning → Summary → PDF Download
+User → Router → Intake → Fact Completion → Summary → PDF Download
 """
 
 from app.services.agents.intake import create_intake_agent

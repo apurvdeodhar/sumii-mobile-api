@@ -43,7 +43,7 @@ class SummaryService:
         Returns:
             Tuple of (markdown_content, metadata_dict)
             - markdown_content: Full markdown summary text
-            - metadata: Dict with legal_area, case_strength, urgency
+            - metadata: Dict with legal_area, urgency (no case_strength - lawyers assess that)
 
         Raises:
             Exception: If summary generation fails
@@ -145,8 +145,12 @@ class SummaryService:
     def _extract_summary_from_response(self, response) -> tuple[str, dict]:
         """Extract markdown and metadata from Mistral agent response
 
+        Handles both:
+        - conversations.start_async response (outputs array)
+        - run_async response (output_entries)
+
         Args:
-            response: Mistral RunResult object from run_async
+            response: Mistral response object
 
         Returns:
             Tuple of (markdown_content, metadata_dict)
@@ -157,13 +161,39 @@ class SummaryService:
         markdown_content = None
         metadata = {}
 
-        # Check output_entries for function calls
-        if hasattr(response, "output_entries"):
+        logger.debug(f"Response type: {type(response)}")
+        logger.debug(f"Response attributes: {dir(response)}")
+
+        # Method 1: Check 'outputs' array (conversations.start_async format)
+        if hasattr(response, "outputs") and response.outputs:
+            logger.debug(f"Found outputs array with {len(response.outputs)} entries")
+            for output in response.outputs:
+                logger.debug(f"Output type: {type(output)}, attributes: {dir(output)}")
+
+                # Check for function call output
+                if hasattr(output, "type"):
+                    if output.type == "function.call" or str(output.type) == "function.call":
+                        if hasattr(output, "name") and output.name == "generate_summary":
+                            if hasattr(output, "arguments"):
+                                args = output.arguments
+                                if isinstance(args, str):
+                                    args = json.loads(args)
+                                markdown_content = args.get("markdown_content", "")
+                                metadata = args.get("metadata", {})
+                                logger.info(f"Extracted summary from function call: {len(markdown_content)} chars")
+
+                # Check for message output with content
+                if not markdown_content and hasattr(output, "content"):
+                    content = output.content
+                    if content and len(content) > 50:
+                        markdown_content = content
+                        logger.info(f"Extracted summary from message content: {len(markdown_content)} chars")
+
+        # Method 2: Check 'output_entries' (run_async format - fallback)
+        if not markdown_content and hasattr(response, "output_entries"):
             for entry in response.output_entries:
-                # Check if this is a function call entry
                 if hasattr(entry, "type") and entry.type == "function.call":
                     if hasattr(entry, "name") and entry.name == "generate_summary":
-                        # Parse function arguments
                         if hasattr(entry, "arguments"):
                             args = entry.arguments
                             if isinstance(args, str):
@@ -171,34 +201,50 @@ class SummaryService:
                             markdown_content = args.get("markdown_content", "")
                             metadata = args.get("metadata", {})
 
-        # If no function call found, try to get text output
+        # Method 3: Try output_as_text property
         if not markdown_content and hasattr(response, "output_as_text"):
-            markdown_content = response.output_as_text
+            text = response.output_as_text
+            if text and len(text) > 50:
+                markdown_content = text
+                logger.info(f"Extracted summary from output_as_text: {len(markdown_content)} chars")
 
-        # If still no markdown, try to extract from response text
+        # Method 4: Try to parse response directly
         if not markdown_content:
             response_text = str(response)
-            # Try to find markdown in response
+            logger.debug(f"Response as string (first 500 chars): {response_text[:500]}")
+
+            # Try to find markdown in code block
             if "```markdown" in response_text:
-                # Extract markdown from code block
                 start = response_text.find("```markdown") + 11
                 end = response_text.find("```", start)
                 if end > start:
                     markdown_content = response_text[start:end].strip()
-            elif response_text:
-                # Use full response as markdown
-                markdown_content = response_text
+
+            # Try to find content in the response
+            elif "markdown_content" in response_text:
+                # Try to extract JSON
+                try:
+                    import re
+
+                    match = re.search(r'"markdown_content"\s*:\s*"([^"]+)"', response_text)
+                    if match:
+                        markdown_content = match.group(1)
+                except Exception:
+                    pass
 
         if not markdown_content:
+            logger.error(f"Could not extract markdown. Full response: {response}")
             raise Exception("Could not extract markdown content from agent response")
 
-        # Ensure metadata has required fields
+        # Ensure metadata has required fields (no case_strength - lawyers assess that)
         if not metadata:
             metadata = {
-                "legal_area": "Mietrecht",  # Default, should come from conversation
-                "case_strength": "medium",  # Default
+                "legal_area": "Mietrecht",  # Default
                 "urgency": "weeks",  # Default
             }
+
+        # Remove case_strength if present (deprecated)
+        metadata.pop("case_strength", None)
 
         return markdown_content, metadata
 

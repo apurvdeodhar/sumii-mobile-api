@@ -131,25 +131,9 @@ Benefits:
 - Easier to debug and maintain
 """
 
-BGB_REFERENCE_GUIDE = """
-<<<CRITICAL BGB SECTIONS FOR COMMON CASES>>>
-
-Mietrecht (Rent Law):
-- §535 BGB - Basic rental contract obligations
-- §536 BGB - Landlord's duty to maintain property, rent reduction for defects
-- §543 BGB - Termination without notice for important reasons
-- §556 BGB - Rent increase regulations
-
-Arbeitsrecht (Employment Law):
-- §611a BGB - Employment contract
-- §626 BGB - Termination without notice for important reasons
-- §622 BGB - Notice periods for termination
-
-Vertragsrecht (Contract Law):
-- §145-155 BGB - Contract formation
-- §311 BGB - Obligations from contracts
-- §320 BGB - Right to refuse performance
-"""
+# DEPRECATED: BGB_REFERENCE_GUIDE removed - Sumii does not provide legal analysis
+# Legal analysis is done by lawyers. Sumii only collects facts.
+BGB_REFERENCE_GUIDE = """[DEPRECATED - Not used. Sumii only gathers facts, does not analyze law.]"""
 
 # Few-shot examples for different conversation scenarios
 INTAKE_FEW_SHOT_EXAMPLES = """
@@ -187,51 +171,53 @@ Agent: "Have you contacted them about the delay?"
 - Never lecture about laws during intake
 """
 
-REASONING_FEW_SHOT_EXAMPLES = """
-<<<FEW-SHOT EXAMPLES: INTERNAL REASONING (NOT SHOWN TO USER)>>>
+# Fact Completion Examples - Focus on gathering complete information for lawyers
+FACT_COMPLETION_EXAMPLES = """
+<<<FEW-SHOT EXAMPLES: INTELLIGENT FACT-GATHERING>>>
 
 SCENARIO: Broken heating in rental apartment
-Facts collected:
+Facts collected so far:
 - Heating broken for 2 weeks
 - Landlord notified via email 1 week ago
 - No response from landlord
-- Winter season (essential service)
+- Winter season
 
-Internal legal analysis:
-§536 BGB applies - Landlord's duty to maintain property
-§536a BGB - Tenant's rights: rent reduction possible
-Timeline is important: 2 weeks without heating in winter = significant defect
-Written notice sent = proper procedure followed
-Next step: Tenant can reduce rent retroactively
+What's still missing that a lawyer would need:
+- Documentation: Do they have copies of emails sent?
+- Impact: How severely is the apartment affected? All rooms?
+- Action taken: Have they had to use alternative heating? Cost?
+- Property details: Rent amount? Address for jurisdiction?
 
-Questions to ask user (based on this analysis):
-1. "Hast du die Heizung selbst reparieren lassen oder wartest du noch?"
-2. "Wie stark ist die Wohnung davon betroffen? Sind alle Räume kalt?"
-3. "Hast du alternative Heizmöglichkeiten nutzen müssen?"
+Good follow-up questions:
+1. "Hast du noch Kopien von den E-Mails, die du geschickt hast?"
+2. "Wie viele Räume sind davon betroffen? Die ganze Wohnung?"
+3. "Musstest du einen Heizlüfter kaufen oder andere Kosten gehabt?"
 
 SCENARIO: Employment termination
-Facts collected:
+Facts collected so far:
 - Termination received yesterday
 - 3 months notice period
 - Employee for 5 years
 - No reason given in letter
 
-Internal legal analysis:
-§622 BGB - Notice periods: 2 months for 5 years employment (3 months is longer, acceptable)
-§623 BGB - Written form required (satisfied)
-§626 BGB - Extraordinary termination needs important reason
-Missing: Reason for termination (required for extraordinary, not ordinary)
-Red flag: If extraordinary termination, employee can challenge
+What's still missing that a lawyer would need:
+- Document: Is the termination in writing? Signature?
+- Type: Does it say "ordentliche" or "außerordentliche" Kündigung?
+- Context: Were there recent conflicts or warnings?
+- Support: Is there a works council (Betriebsrat)?
 
-Questions to ask user (based on this analysis):
-1. "Steht in dem Kündigungsschreiben, ob es eine ordentliche oder außerordentliche Kündigung ist?"
-2. "Gab es in letzter Zeit Konflikte mit Ihrem Arbeitgeber?"
-3. "Sind Sie in einem Betriebsrat oder gibt es einen?"
+Good follow-up questions:
+1. "Hast du das Kündigungsschreiben noch? Ist es unterschrieben?"
+2. "Gab es in den letzten Monaten Konflikte oder Abmahnungen?"
+3. "Gibt es bei dir einen Betriebsrat?"
 
 <<<KEY PRINCIPLE>>>
-USE legal knowledge to ask SMARTER questions
-DON'T dump legal knowledge onto user
+Collect ALL facts a lawyer needs to give proper advice.
+DON'T try to give that advice yourself - that's the lawyer's job.
 """
+
+# DEPRECATED: Old name kept for backwards compatibility
+REASONING_FEW_SHOT_EXAMPLES = FACT_COMPLETION_EXAMPLES
 
 SUMMARY_FEW_SHOT_EXAMPLES = """
 <<<FEW-SHOT EXAMPLES: LEGAL SUMMARIES>>>

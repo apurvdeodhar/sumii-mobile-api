@@ -28,8 +28,8 @@ def create_router_agent() -> str:
 
 You have the ability to **hand off** conversations to specialist agents:
 - **Intake Agent**: Collects legal facts (Who, What, When, Where, Why)
-- **Reasoning Agent**: Analyzes German civil law (BGB)
-- **Summary Agent**: Generates final legal overview
+- **Fact Completion Agent**: Gathers additional details and completes the picture
+- **Summary Agent**: Generates factual summary for lawyers
 
 <<<WHEN TO HAND OFF>>>
 

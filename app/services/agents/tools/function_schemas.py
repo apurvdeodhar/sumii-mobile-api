@@ -76,80 +76,69 @@ LEGAL_FACTS_SCHEMA = {
     },
 }
 
-# Legal reasoning schema (Reasoning Agent)
+# DEPRECATED: Legal reasoning schema - Sumii does not provide legal analysis
+# This schema is kept for backwards compatibility but should not be used
+# Legal analysis is done by lawyers, not by Sumii agents
 LEGAL_REASONING_SCHEMA = {
     "type": "function",
     "function": {
-        "name": "legal_reasoning",
-        "description": "Structure legal analysis with BGB references",
+        "name": "document_collected_facts",
+        "description": "Document the facts that have been collected from the user",
         "parameters": {
             "type": "object",
             "properties": {
-                "applicable_laws": {
+                "facts_collected": {
                     "type": "array",
                     "items": {
                         "type": "object",
                         "properties": {
-                            "paragraph": {"type": "string", "description": "BGB paragraph (e.g., § 536 BGB)"},
-                            "description": {"type": "string", "description": "What this law covers"},
-                            "relevance": {"type": "string", "description": "How it applies to this case"},
+                            "category": {
+                                "type": "string",
+                                "description": "Category of fact (documentation, timeline, parties, financial)",
+                            },
+                            "description": {"type": "string", "description": "The fact that was collected"},
+                            "source": {
+                                "type": "string",
+                                "description": "How this was obtained (user statement, document, etc)",
+                            },
                         },
                     },
-                    "description": "Relevant BGB paragraphs",
+                    "description": "Facts collected from the user",
                 },
-                "case_analysis": {
-                    "type": "object",
-                    "properties": {
-                        "strengths": {
-                            "type": "array",
-                            "items": {"type": "string"},
-                            "description": "Strong points in favor of the user",
-                        },
-                        "weaknesses": {
-                            "type": "array",
-                            "items": {"type": "string"},
-                            "description": "Weak points or challenges",
-                        },
-                        "overall_assessment": {
-                            "type": "string",
-                            "enum": ["strong", "medium", "weak"],
-                            "description": "Overall case strength",
-                        },
-                    },
-                },
-                "recommendations": {
+                "missing_information": {
                     "type": "array",
                     "items": {"type": "string"},
-                    "description": "Next steps or recommendations",
+                    "description": "Information still needed for a lawyer to assess the case",
+                },
+                "documents_mentioned": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Documents the user mentioned having (contracts, emails, photos, etc)",
                 },
             },
-            "required": ["applicable_laws", "case_analysis", "recommendations"],
+            "required": ["facts_collected"],
         },
     },
 }
 
 # Summary generation schema (Summary Agent)
+# Note: case_strength removed - lawyers assess case strength, not Sumii
 SUMMARY_GENERATION_SCHEMA = {
     "type": "function",
     "function": {
         "name": "generate_summary",
-        "description": "Generate structured legal summary in markdown",
+        "description": "Generate structured factual summary for lawyers in markdown",
         "parameters": {
             "type": "object",
             "properties": {
                 "markdown_content": {
                     "type": "string",
-                    "description": "Complete markdown summary following the structure",
+                    "description": "Complete markdown summary following the Sumii template structure",
                 },
                 "metadata": {
                     "type": "object",
                     "properties": {
                         "legal_area": {"type": "string", "description": "Mietrecht/Arbeitsrecht/etc."},
-                        "case_strength": {
-                            "type": "string",
-                            "enum": ["strong", "medium", "weak"],
-                            "description": "Overall case assessment",
-                        },
                         "urgency": {
                             "type": "string",
                             "enum": ["immediate", "weeks", "months"],

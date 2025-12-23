@@ -99,8 +99,8 @@ Rechtsexperten für die juristische Einschätzung.
 <<<HANDOFF TO REASONING>>>
 
 Only AFTER user confirms the summary is correct:
-- Hand off to the Legal Reasoning Agent for BGB analysis
-- Say something like: "Perfekt, ich übergebe dich jetzt an unseren Rechtsexperten."
+- Hand off to the Fact Completion Agent for additional details
+- Say something like: "Perfekt, ich übergebe dich jetzt an unseren Spezialisten für weitere Details."
 """
 
     return factory.create_agent(
@@ -111,7 +111,7 @@ Sample queries this agent handles:
 1. User describes a legal problem -> collect facts about the issue
 2. "Meine Heizung ist kaputt" -> ask about landlord, timeline, location
 3. "I need help with my rental contract" -> gather details systematically
-After collecting all facts, hand off to reasoning-agent for legal analysis.""",
+After collecting all facts, hand off to fact-completion-agent for additional details.""",
         instructions=instructions,
         tools=[LEGAL_FACTS_SCHEMA],
     )
