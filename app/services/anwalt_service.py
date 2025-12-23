@@ -114,7 +114,6 @@ class AnwaltService:
         summary_pdf_url: str,
         lawyer_id: int,
         legal_area: str,
-        case_strength: str,
         urgency: str,
         user_location: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
@@ -129,7 +128,6 @@ class AnwaltService:
             summary_pdf_url: Pre-signed S3 URL for the summary PDF
             lawyer_id: Lawyer ID from sumii-anwalt
             legal_area: Legal area (e.g., "Mietrecht", "Arbeitsrecht")
-            case_strength: Case strength (e.g., "strong", "medium", "weak")
             urgency: Urgency level (e.g., "immediate", "weeks", "months")
             user_location: Optional user location dict with keys: city, lat, lng
 
@@ -140,14 +138,13 @@ class AnwaltService:
             httpx.HTTPError: If API request fails
             Exception: If handoff fails
         """
-        # Build request payload based on implementation plan
+        # Build request payload (no case_strength - lawyers assess that)
         payload = {
             "user_id": user_id,
             "summary_id": summary_id,
             "summary_pdf_url": summary_pdf_url,
             "lawyer_id": lawyer_id,
             "legal_area": legal_area,
-            "case_strength": case_strength,
             "urgency": urgency,
         }
 
