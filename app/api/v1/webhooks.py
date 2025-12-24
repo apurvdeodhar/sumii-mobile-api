@@ -177,6 +177,29 @@ async def lawyer_response_webhook(
         logger.error(f"Failed to send email to {user.email}: {e}", exc_info=True)
         # Don't fail the webhook if email fails
 
+    # Send push notification to user (non-blocking)
+    push_sent = False
+    try:
+        from app.services.push_service import push_service
+
+        push_sent = await push_service.send_to_user(
+            user=user,
+            title="Anwalt hat geantwortet",
+            body=f"{webhook_data.lawyer_name} hat auf Ihren Fall geantwortet.",
+            data={
+                "type": "lawyer_response",
+                "case_id": webhook_data.case_id,
+                "conversation_id": str(webhook_data.conversation_id),
+                "lawyer_id": webhook_data.lawyer_id,
+                "lawyer_name": webhook_data.lawyer_name,
+            },
+        )
+        if push_sent:
+            logger.info(f"Sent push notification to user {webhook_data.user_id}")
+    except Exception as e:
+        logger.warning(f"Failed to send push notification: {e}")
+        # Don't fail the webhook if push fails
+
     return LawyerResponseWebhookResponse(
         status="success",
         message=f"Notification created and email sent to user {user.email}",

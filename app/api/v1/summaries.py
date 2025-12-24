@@ -191,6 +191,25 @@ async def create_summary(
 
         logger.info(f"Summary generated successfully: {summary.id} ({reference_number})")
 
+        # Send push notification to user (non-blocking)
+        try:
+            from app.services.push_service import push_service
+
+            await push_service.send_to_user(
+                user=current_user,
+                title="Zusammenfassung bereit",
+                body="Ihre rechtliche Zusammenfassung ist jetzt verfügbar.",
+                data={
+                    "type": "summary_ready",
+                    "summary_id": str(summary.id),
+                    "conversation_id": str(conversation.id),
+                    "reference_number": reference_number,
+                },
+            )
+        except Exception as e:
+            logger.warning(f"Failed to send push notification: {e}")
+            # Don't fail summary creation if push fails
+
         return _summary_to_response(summary, storage_service)
 
     except ValueError as e:

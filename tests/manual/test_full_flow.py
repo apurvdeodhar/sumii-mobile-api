@@ -445,7 +445,7 @@ class TestRunner:
         response = self.client.post(
             f"{API_V1}/users/push-token",
             headers=self._auth_headers(),
-            json={"expo_push_token": self.ctx.expo_push_token},
+            json={"push_token": self.ctx.expo_push_token},
         )
 
         if response.status_code in [200, 201]:
