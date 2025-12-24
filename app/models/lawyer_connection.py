@@ -65,7 +65,7 @@ class LawyerConnection(Base):
     status_changed_at = Column(DateTime(timezone=True), nullable=True)  # When status last changed
 
     # Case tracking (from sumii-anwalt)
-    case_id = Column(Integer, nullable=True)  # Case ID in sumii-anwalt system (if case was created)
+    case_id = Column(String(100), nullable=True)  # Case ID in sumii-anwalt system (format: SUMII-XXXXXXXX)
 
     # Timestamps
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)

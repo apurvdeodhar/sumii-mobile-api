@@ -644,6 +644,7 @@ def _summary_to_response(summary: Summary, storage_service: StorageService) -> S
         markdown_s3_key=summary.markdown_s3_key or f"summaries/{summary.reference_number}.md",
         pdf_s3_key=summary.pdf_s3_key,
         pdf_url=pdf_url,
+        markdown_content=summary.markdown_content or "",
         legal_area=summary.legal_area,
         case_strength=summary.case_strength,
         urgency=summary.urgency,

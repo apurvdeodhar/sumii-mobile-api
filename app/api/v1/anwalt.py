@@ -217,7 +217,6 @@ async def connect_to_lawyer(
                 summary_pdf_url=pdf_url,
                 lawyer_id=connection_data.lawyer_id,
                 legal_area=conversation.legal_area.value if conversation.legal_area else "Other",
-                case_strength=conversation.case_strength.value if conversation.case_strength else "medium",
                 urgency=conversation.urgency.value if conversation.urgency else "weeks",
                 user_location=user_location,
             )

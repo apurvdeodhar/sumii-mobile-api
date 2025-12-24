@@ -29,7 +29,7 @@ class LawyerConnectionResponse(BaseModel):
     rejection_reason: str | None
     status: ConnectionStatus
     status_changed_at: datetime | None
-    case_id: int | None
+    case_id: str | None  # Case ID from sumii-anwalt (format: SUMII-XXXXXXXX)
     created_at: datetime
     updated_at: datetime
     lawyer_response_at: datetime | None

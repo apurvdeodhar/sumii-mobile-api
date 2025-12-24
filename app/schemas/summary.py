@@ -38,6 +38,7 @@ class SummaryResponse(BaseModel):
     markdown_s3_key: str  # S3 location: summaries/{reference_number}.md
     pdf_s3_key: str  # S3 location: summaries/{reference_number}.pdf
     pdf_url: str  # Pre-signed URL for PDF download (expires after 7 days)
+    markdown_content: str  # Full markdown text (also stored in S3)
     legal_area: LegalArea
     case_strength: CaseStrength
     urgency: Urgency
