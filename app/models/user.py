@@ -51,6 +51,19 @@ class User(SQLAlchemyBaseUserTableUUID, Base):
         String, nullable=True
     )  # User's longitude (stored as string for precision, e.g., "13.4050")
 
+    # Personal details (for Anspruchsteller section in legal summaries)
+    first_name: Mapped[str | None] = mapped_column(String(100), nullable=True)  # Vorname
+    last_name: Mapped[str | None] = mapped_column(String(100), nullable=True)  # Nachname
+    phone: Mapped[str | None] = mapped_column(String(50), nullable=True)  # Telefonnummer
+    address_street: Mapped[str | None] = mapped_column(String(200), nullable=True)  # Straße und Hausnummer
+    address_city: Mapped[str | None] = mapped_column(String(100), nullable=True)  # Stadt
+    address_postal_code: Mapped[str | None] = mapped_column(String(20), nullable=True)  # PLZ
+
+    # Legal insurance details (for Rechtsschutzversicherung section)
+    legal_insurance: Mapped[bool | None] = mapped_column(nullable=True)  # Rechtsschutzversicherung (ja/nein)
+    insurance_company: Mapped[str | None] = mapped_column(String(200), nullable=True)  # Versicherungsgesellschaft
+    insurance_number: Mapped[str | None] = mapped_column(String(100), nullable=True)  # Versicherungsnummer
+
     # Relationships
     oauth_accounts: Mapped[list["OAuthAccount"]] = relationship(  # noqa: F821
         "OAuthAccount", lazy="joined", cascade="all, delete-orphan"

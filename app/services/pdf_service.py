@@ -19,8 +19,8 @@ from weasyprint.text.fonts import FontConfiguration
 
 logger = logging.getLogger(__name__)
 
-# Path to templates directory
-TEMPLATES_DIR = Path(__file__).parent.parent.parent / "docs" / "library" / "templates"
+# Path to templates directory (inside app folder to be included in Docker)
+TEMPLATES_DIR = Path(__file__).parent.parent / "templates"
 
 
 class PDFService:
@@ -220,6 +220,11 @@ class PDFService:
             # Load template
             template = self.jinja_env.get_template(template_name)
 
+            # Get logo path (WeasyPrint needs file:// URL or base64)
+            assets_dir = Path(__file__).parent.parent / "assets"
+            logo_path = assets_dir / "sumii_logo.png"
+            logo_url = f"file://{logo_path}" if logo_path.exists() else None
+
             # Prepare template context
             context = {
                 "case_data": case_data,
@@ -228,6 +233,7 @@ class PDFService:
                 "generation_date": datetime.now(),
                 "template_version": "2.0",
                 "language": "de",
+                "logo_path": logo_url,
             }
 
             # Render template to HTML

@@ -28,22 +28,23 @@ class SummaryService:
         self.agents_service = agents_service
         self.client = Mistral(api_key=settings.MISTRAL_API_KEY)
 
-    async def generate_summary(self, conversation: Conversation, db_session) -> tuple[str, dict]:
+    async def generate_summary(self, conversation: Conversation, db_session) -> tuple[str, dict, dict]:
         """Generate summary markdown using Summary Agent
 
         This method:
         1. Calls the Summary Agent with conversation context
         2. Extracts markdown from the agent's function call
-        3. Returns markdown content and metadata
+        3. Returns markdown content, metadata, and structured data for PDF
 
         Args:
             conversation: Conversation model with messages
             db_session: Database session (for saving messages)
 
         Returns:
-            Tuple of (markdown_content, metadata_dict)
+            Tuple of (markdown_content, metadata_dict, structured_case_data)
             - markdown_content: Full markdown summary text
             - metadata: Dict with legal_area, urgency (no case_strength - lawyers assess that)
+            - structured_case_data: Dict with claimant, respondent, factual_narrative for PDF template
 
         Raises:
             Exception: If summary generation fails
@@ -77,8 +78,8 @@ class SummaryService:
                 inputs=conversation_context,
             )
 
-            # Extract markdown from function call
-            markdown_content, metadata = self._extract_summary_from_response(response)
+            # Extract markdown, metadata, and structured data from function call
+            markdown_content, metadata, structured_data = self._extract_summary_from_response(response)
 
             # Save agent message to database
             if markdown_content:
@@ -91,7 +92,7 @@ class SummaryService:
                 db_session.add(agent_message)
                 await db_session.commit()
 
-            return markdown_content, metadata
+            return markdown_content, metadata, structured_data
 
         except Exception as e:
             logger.error(f"Failed to generate summary: {e}", exc_info=True)
@@ -142,8 +143,8 @@ class SummaryService:
 
         return "\n".join(context_parts)
 
-    def _extract_summary_from_response(self, response) -> tuple[str, dict]:
-        """Extract markdown and metadata from Mistral agent response
+    def _extract_summary_from_response(self, response) -> tuple[str, dict, dict]:
+        """Extract markdown, metadata, and structured data from Mistral agent response
 
         Handles both:
         - conversations.start_async response (outputs array)
@@ -153,13 +154,15 @@ class SummaryService:
             response: Mistral response object
 
         Returns:
-            Tuple of (markdown_content, metadata_dict)
+            Tuple of (markdown_content, metadata_dict, structured_case_data)
+            - structured_case_data: dict with claimant, respondent, factual_narrative, evidence for PDF template
 
         Raises:
             Exception: If markdown not found in response
         """
         markdown_content = None
         metadata = {}
+        structured_data = {}  # New: structured data for PDF template
 
         logger.debug(f"Response type: {type(response)}")
         logger.debug(f"Response attributes: {dir(response)}")
@@ -180,6 +183,14 @@ class SummaryService:
                                     args = json.loads(args)
                                 markdown_content = args.get("markdown_content", "")
                                 metadata = args.get("metadata", {})
+                                # Extract structured data for PDF template
+                                structured_data = {
+                                    "claimant": args.get("claimant", {}),
+                                    "respondent": args.get("respondent", {}),
+                                    "factual_narrative": args.get("factual_narrative", {}),
+                                    "evidence": args.get("evidence", {}),
+                                    "financial_info": args.get("financial_info", {}),
+                                }
                                 logger.info(f"Extracted summary from function call: {len(markdown_content)} chars")
 
                 # Check for message output with content
@@ -200,6 +211,13 @@ class SummaryService:
                                 args = json.loads(args)
                             markdown_content = args.get("markdown_content", "")
                             metadata = args.get("metadata", {})
+                            structured_data = {
+                                "claimant": args.get("claimant", {}),
+                                "respondent": args.get("respondent", {}),
+                                "factual_narrative": args.get("factual_narrative", {}),
+                                "evidence": args.get("evidence", {}),
+                                "financial_info": args.get("financial_info", {}),
+                            }
 
         # Method 3: Try output_as_text property
         if not markdown_content and hasattr(response, "output_as_text"):
@@ -246,7 +264,7 @@ class SummaryService:
         # Remove case_strength if present (deprecated)
         metadata.pop("case_strength", None)
 
-        return markdown_content, metadata
+        return markdown_content, metadata, structured_data
 
 
 # Dependency injection function

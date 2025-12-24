@@ -105,7 +105,7 @@ async def create_summary(
     # Generate summary using Summary Agent
     try:
         summary_service = get_summary_service(agents_service)
-        markdown_content, metadata = await summary_service.generate_summary(conversation, db)
+        markdown_content, metadata, structured_data = await summary_service.generate_summary(conversation, db)
 
         # Create summary record (will get ID after commit)
         summary = Summary(
@@ -132,11 +132,32 @@ async def create_summary(
         reference_number = generate_sumii_reference_number(summary.id)
         summary.reference_number = reference_number
 
-        # Convert markdown to PDF (lazy import to avoid WeasyPrint dependencies in tests)
+        # Build case_data for PDF template, using user profile as fallback for claimant
+        case_data = {
+            "claimant": {
+                "name": structured_data.get("claimant", {}).get("name")
+                or f"{current_user.first_name or ''} {current_user.last_name or ''}".strip()
+                or "k. A.",
+                "role": structured_data.get("claimant", {}).get("role", ""),
+                "legal_insurance": "ja"
+                if current_user.legal_insurance
+                else ("nein" if current_user.legal_insurance is False else "k. A."),
+                "insurance_company": current_user.insurance_company or "k. A.",
+                "insurance_number": current_user.insurance_number or "k. A.",
+            },
+            "respondent": structured_data.get("respondent", {}),
+            "factual_narrative": structured_data.get("factual_narrative", {}),
+            "evidence": structured_data.get("evidence", {}),
+            "financial_info": structured_data.get("financial_info", {}),
+            "metadata": metadata,
+        }
+
+        # Generate PDF using professional template
         from app.services.pdf_service import PDFService
 
         pdf_service = PDFService()
-        pdf_bytes = pdf_service.markdown_to_pdf(markdown_content, reference_number)
+        # Use template_to_pdf for structured professional output
+        pdf_bytes = pdf_service.template_to_pdf(case_data, reference_number)
 
         # Upload markdown to S3
         markdown_bytes = markdown_content.encode("utf-8")
@@ -559,7 +580,7 @@ async def regenerate_summary(
     # Generate new summary
     try:
         summary_service = get_summary_service(agents_service)
-        markdown_content, metadata = await summary_service.generate_summary(conversation, db)
+        markdown_content, metadata, structured_data = await summary_service.generate_summary(conversation, db)
 
         # Update summary record
         summary.markdown_content = markdown_content
@@ -573,11 +594,31 @@ async def regenerate_summary(
 
         await db.flush()  # Get updated summary without committing
 
-        # Convert markdown to PDF
+        # Build case_data for PDF template, using user profile as fallback for claimant
+        case_data = {
+            "claimant": {
+                "name": structured_data.get("claimant", {}).get("name")
+                or f"{current_user.first_name or ''} {current_user.last_name or ''}".strip()
+                or "k. A.",
+                "role": structured_data.get("claimant", {}).get("role", ""),
+                "legal_insurance": "ja"
+                if current_user.legal_insurance
+                else ("nein" if current_user.legal_insurance is False else "k. A."),
+                "insurance_company": current_user.insurance_company or "k. A.",
+                "insurance_number": current_user.insurance_number or "k. A.",
+            },
+            "respondent": structured_data.get("respondent", {}),
+            "factual_narrative": structured_data.get("factual_narrative", {}),
+            "evidence": structured_data.get("evidence", {}),
+            "financial_info": structured_data.get("financial_info", {}),
+            "metadata": metadata,
+        }
+
+        # Generate PDF using professional template
         from app.services.pdf_service import PDFService
 
         pdf_service = PDFService()
-        pdf_bytes = pdf_service.markdown_to_pdf(markdown_content, summary.reference_number)
+        pdf_bytes = pdf_service.template_to_pdf(case_data, summary.reference_number)
 
         # Upload markdown to storage
         markdown_bytes = markdown_content.encode("utf-8")

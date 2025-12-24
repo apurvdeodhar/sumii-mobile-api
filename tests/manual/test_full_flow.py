@@ -950,7 +950,7 @@ class TestRunner:
             return True
 
         response = self.client.get(
-            f"{API_V1}/summaries/{self.ctx.summary_id}/pdf-url",
+            f"{API_V1}/summaries/{self.ctx.summary_id}/pdf",
             headers=self._auth_headers(),
         )
 

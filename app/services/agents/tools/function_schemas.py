@@ -122,18 +122,92 @@ LEGAL_REASONING_SCHEMA = {
 }
 
 # Summary generation schema (Summary Agent)
+# Structured data for PDF template + markdown for mobile app display
 # Note: case_strength removed - lawyers assess case strength, not Sumii
 SUMMARY_GENERATION_SCHEMA = {
     "type": "function",
     "function": {
         "name": "generate_summary",
-        "description": "Generate structured factual summary for lawyers in markdown",
+        "description": (
+            "Generate structured factual summary for lawyers with chronological timeline and evidence references"
+        ),
         "parameters": {
             "type": "object",
             "properties": {
+                # Human-readable markdown for mobile app bottom sheet
                 "markdown_content": {
                     "type": "string",
-                    "description": "Complete markdown summary following the Sumii template structure",
+                    "description": "Complete markdown summary with all structured sections for mobile display",
+                },
+                # Structured data for PDF template
+                "claimant": {
+                    "type": "object",
+                    "description": "Anspruchsteller (claimant) information",
+                    "properties": {
+                        "name": {"type": "string", "description": "Full name of claimant"},
+                        "role": {
+                            "type": "string",
+                            "description": "Role in the matter (e.g., 'Mieter', 'Arbeitnehmer')",
+                        },
+                    },
+                },
+                "respondent": {
+                    "type": "object",
+                    "description": "Anspruchsgegner (respondent) information",
+                    "properties": {
+                        "name": {"type": "string", "description": "Name of respondent"},
+                        "role": {"type": "string", "description": "Role (e.g., 'Vermieter', 'Arbeitgeber')"},
+                        "address": {"type": "string", "description": "Address if known"},
+                        "contact": {"type": "string", "description": "Contact info if known"},
+                    },
+                },
+                "factual_narrative": {
+                    "type": "object",
+                    "description": "Sachverhaltsdarstellung - factual case narrative",
+                    "properties": {
+                        "claimant_goal": {
+                            "type": "string",
+                            "description": "What the claimant wants (factual, NOT legal assessment)",
+                        },
+                        "party_relationship": {
+                            "type": "string",
+                            "description": "Relationship between parties (contract type, duration, etc.)",
+                        },
+                        "chronological_timeline": {
+                            "type": "array",
+                            "description": "Events in chronological order with evidence references",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "date": {"type": "string", "description": "Date in DD.MM.YYYY or description"},
+                                    "event": {"type": "string", "description": "What happened"},
+                                    "evidence_ref": {
+                                        "type": "string",
+                                        "description": "Reference to evidence (e.g., 'Anlage 1' or document name)",
+                                    },
+                                },
+                            },
+                        },
+                    },
+                },
+                "evidence": {
+                    "type": "object",
+                    "description": "Beweisverzeichnis - evidence index",
+                    "properties": {
+                        "evidence_items": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": "Numbered list of evidence items (e.g., 'Mietvertrag vom 01.01.2023')",
+                        },
+                    },
+                },
+                "financial_info": {
+                    "type": "object",
+                    "description": "Financial details if applicable",
+                    "properties": {
+                        "claim_value_eur": {"type": "string", "description": "Estimated claim value in EUR"},
+                        "claim_description": {"type": "string", "description": "What the value represents"},
+                    },
                 },
                 "metadata": {
                     "type": "object",
@@ -147,7 +221,7 @@ SUMMARY_GENERATION_SCHEMA = {
                     },
                 },
             },
-            "required": ["markdown_content", "metadata"],
+            "required": ["markdown_content", "claimant", "respondent", "factual_narrative", "metadata"],
         },
     },
 }

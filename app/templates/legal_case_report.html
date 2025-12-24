@@ -1,0 +1,514 @@
+<!DOCTYPE html>
+<html lang="{{ language or 'de' }}">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Forensische Anamnese - {{ case_data.claimant.name | default_if_empty("Mandant") }}</title>
+    <style>
+        /* Sumii Urban Color Palette - Professional & Clean */
+        :root {
+            --sumii-primary: #34495e;
+            --sumii-secondary: #7b8d9f;
+            --sumii-light: #f8f9fa;
+            --sumii-border: #e9ecef;
+            --sumii-text: #2c3e50;
+            --sumii-muted: #6c757d;
+        }
+
+        @page {
+            size: A4;
+            margin: 2cm 2cm 2.5cm 2cm;
+            @top-center {
+                content: "Sumii | Forensische Anamnese | Streng Vertraulich";
+                font-size: 8pt;
+                color: var(--sumii-secondary);
+            }
+            @bottom-center {
+                content: "Seite " counter(page) " von " counter(pages);
+                font-size: 8pt;
+                color: var(--sumii-muted);
+            }
+        }
+
+        body {
+            font-family: 'Helvetica Neue', Arial, sans-serif;
+            font-size: 10pt;
+            line-height: 1.5;
+            color: var(--sumii-text);
+            margin: 0;
+            padding: 0;
+        }
+
+        /* AI Disclaimer Banner */
+        .ai-disclaimer {
+            background-color: #fff3cd;
+            border: 1px solid #ffc107;
+            border-radius: 4px;
+            padding: 10px 15px;
+            margin-bottom: 20px;
+            font-size: 9pt;
+            text-align: center;
+        }
+
+        .ai-disclaimer strong {
+            color: #856404;
+        }
+
+        /* Document Header with Logo */
+        .document-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            border-bottom: 3px solid var(--sumii-primary);
+            padding-bottom: 15px;
+            margin-bottom: 20px;
+        }
+
+        .logo-section {
+            flex: 0 0 auto;
+        }
+
+        .logo-section img {
+            height: 60px;
+            width: auto;
+        }
+
+        .header-text {
+            flex: 1;
+            text-align: right;
+        }
+
+        .header-title {
+            font-size: 14pt;
+            font-weight: bold;
+            color: var(--sumii-primary);
+            margin: 0;
+        }
+
+        .header-subtitle {
+            font-size: 9pt;
+            color: var(--sumii-secondary);
+            margin-top: 4px;
+        }
+
+        /* Case Title */
+        .case-title {
+            text-align: center;
+            margin: 25px 0;
+        }
+
+        .case-title h1 {
+            font-size: 16pt;
+            font-weight: bold;
+            color: var(--sumii-primary);
+            margin: 0 0 10px 0;
+        }
+
+        .case-subject {
+            font-size: 12pt;
+            color: var(--sumii-text);
+        }
+
+        /* Case Metadata Box */
+        .case-metadata {
+            background-color: var(--sumii-light);
+            border-left: 4px solid var(--sumii-primary);
+            padding: 12px 15px;
+            margin: 20px 0;
+        }
+
+        .case-metadata table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        .case-metadata td {
+            padding: 4px 0;
+            vertical-align: top;
+        }
+
+        .case-metadata .label {
+            font-weight: bold;
+            color: var(--sumii-primary);
+            width: 140px;
+        }
+
+        /* Section Styling */
+        .section {
+            margin: 25px 0;
+            page-break-inside: avoid;
+        }
+
+        .section h2 {
+            font-size: 12pt;
+            font-weight: bold;
+            color: var(--sumii-primary);
+            border-bottom: 2px solid var(--sumii-border);
+            padding-bottom: 6px;
+            margin-bottom: 12px;
+        }
+
+        .section h3 {
+            font-size: 10pt;
+            font-weight: bold;
+            color: var(--sumii-text);
+            margin: 15px 0 8px 0;
+        }
+
+        /* Info Tables - Fixes the k.A. alignment issue */
+        .info-table {
+            width: 100%;
+            border-collapse: collapse;
+            background-color: var(--sumii-light);
+            border-radius: 4px;
+            overflow: hidden;
+        }
+
+        .info-table tr {
+            border-bottom: 1px solid var(--sumii-border);
+        }
+
+        .info-table tr:last-child {
+            border-bottom: none;
+        }
+
+        .info-table td {
+            padding: 8px 12px;
+            vertical-align: top;
+        }
+
+        .info-table .label {
+            font-weight: 600;
+            color: var(--sumii-primary);
+            width: 200px;
+            white-space: nowrap;
+        }
+
+        .info-table .value {
+            color: var(--sumii-text);
+        }
+
+        /* Content Box */
+        .content-box {
+            background-color: var(--sumii-light);
+            border-left: 3px solid var(--sumii-secondary);
+            padding: 15px;
+            margin: 12px 0;
+        }
+
+        .content-box p {
+            margin: 0;
+        }
+
+        /* Evidence List */
+        .evidence-list {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+        }
+
+        .evidence-list li {
+            padding: 8px 12px;
+            background-color: var(--sumii-light);
+            margin: 6px 0;
+            border-left: 3px solid var(--sumii-secondary);
+        }
+
+        .evidence-list li strong {
+            color: var(--sumii-primary);
+        }
+
+        /* Timeline */
+        .timeline-item {
+            padding: 10px 15px;
+            border-left: 2px solid var(--sumii-secondary);
+            margin-left: 10px;
+            margin-bottom: 10px;
+        }
+
+        .timeline-date {
+            font-weight: bold;
+            color: var(--sumii-primary);
+            font-size: 9pt;
+        }
+
+        .timeline-event {
+            margin-top: 4px;
+        }
+
+        .timeline-evidence {
+            font-style: italic;
+            color: var(--sumii-muted);
+            font-size: 9pt;
+            margin-top: 4px;
+        }
+
+        /* Claim Value Box */
+        .claim-value {
+            background-color: var(--sumii-light);
+            border: 2px solid var(--sumii-primary);
+            border-radius: 4px;
+            padding: 15px;
+            text-align: center;
+            margin: 12px 0;
+        }
+
+        .claim-value .amount {
+            font-size: 16pt;
+            font-weight: bold;
+            color: var(--sumii-primary);
+        }
+
+        .claim-value .description {
+            font-size: 9pt;
+            color: var(--sumii-muted);
+            margin-top: 4px;
+        }
+
+        /* Legal Disclaimer */
+        .legal-disclaimer {
+            margin-top: 30px;
+            padding: 20px;
+            background-color: #f8f9fa;
+            border: 1px solid var(--sumii-border);
+            border-radius: 4px;
+            font-size: 9pt;
+            page-break-before: always;
+        }
+
+        .legal-disclaimer h3 {
+            color: var(--sumii-primary);
+            font-size: 11pt;
+            margin: 0 0 12px 0;
+        }
+
+        .legal-disclaimer p {
+            margin: 8px 0;
+            text-align: justify;
+        }
+
+        /* Footer */
+        .footer-info {
+            text-align: center;
+            font-size: 8pt;
+            color: var(--sumii-muted);
+            margin-top: 30px;
+            padding-top: 15px;
+            border-top: 1px solid var(--sumii-border);
+        }
+
+        /* Next Steps Box */
+        .next-steps {
+            background-color: #e8f5e9;
+            border: 1px solid #a5d6a7;
+            border-radius: 4px;
+            padding: 15px;
+            margin: 15px 0;
+        }
+
+        .next-steps ol {
+            margin: 10px 0;
+            padding-left: 20px;
+        }
+
+        .next-steps li {
+            margin: 6px 0;
+        }
+    </style>
+</head>
+<body>
+    <!-- AI Disclaimer Banner -->
+    <div class="ai-disclaimer">
+        <strong>⚠️ KI-generierte Analyse</strong> – Diese Dokumentation wurde mit KI-Unterstützung erstellt und muss von einem Rechtsanwalt geprüft werden.
+    </div>
+
+    <!-- Document Header with Logo -->
+    <div class="document-header">
+        <div class="logo-section">
+            {% if logo_path %}
+            <img src="{{ logo_path }}" alt="Sumii">
+            {% else %}
+            <div style="font-size: 24pt; font-weight: bold; color: var(--sumii-primary);">sumii</div>
+            {% endif %}
+        </div>
+        <div class="header-text">
+            <div class="header-title">Forensische Anamnese</div>
+            <div class="header-subtitle">Bahrenfelder Kirchenweg 6h | 22763 Hamburg</div>
+        </div>
+    </div>
+
+    <!-- Case Title -->
+    <div class="case-title">
+        <h1>Fallzusammenfassung</h1>
+        <div class="case-subject">
+            <strong>{{ case_data.claimant.name | default_if_empty("Mandant") }}</strong>
+            {% if case_data.factual_narrative.claimant_goal %}
+            wegen <strong>{{ case_data.factual_narrative.claimant_goal | truncate_words(5) }}</strong>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- Case Metadata -->
+    <div class="case-metadata">
+        <table>
+            <tr>
+                <td class="label">Aktenzeichen:</td>
+                <td>{{ summary_id | default_if_empty("SUMII-ENTWURF") }}</td>
+            </tr>
+            <tr>
+                <td class="label">Erstellt am:</td>
+                <td>{{ generation_date | format_german_date }}</td>
+            </tr>
+        </table>
+    </div>
+
+    <!-- Anspruchsteller -->
+    <div class="section">
+        <h2>Anspruchsteller</h2>
+        <table class="info-table">
+            <tr>
+                <td class="label">Name:</td>
+                <td class="value">{{ case_data.claimant.name | default_if_empty("Nicht angegeben") }}</td>
+            </tr>
+            {% if case_data.claimant.role %}
+            <tr>
+                <td class="label">Rolle:</td>
+                <td class="value">{{ case_data.claimant.role }}</td>
+            </tr>
+            {% endif %}
+            <tr>
+                <td class="label">Rechtsschutzversicherung:</td>
+                <td class="value">{{ case_data.claimant.legal_insurance | default_if_empty("Nicht angegeben") }}</td>
+            </tr>
+            {% if case_data.claimant.insurance_company and case_data.claimant.insurance_company != "k. A." %}
+            <tr>
+                <td class="label">Versicherungsgesellschaft:</td>
+                <td class="value">{{ case_data.claimant.insurance_company }}</td>
+            </tr>
+            {% endif %}
+            {% if case_data.claimant.insurance_number and case_data.claimant.insurance_number != "k. A." %}
+            <tr>
+                <td class="label">Versicherungsnummer:</td>
+                <td class="value">{{ case_data.claimant.insurance_number }}</td>
+            </tr>
+            {% endif %}
+        </table>
+    </div>
+
+    <!-- Anspruchsgegner -->
+    <div class="section">
+        <h2>Anspruchsgegner</h2>
+        <table class="info-table">
+            <tr>
+                <td class="label">Name:</td>
+                <td class="value">{{ case_data.respondent.name | default_if_empty("Nicht angegeben") }}</td>
+            </tr>
+            {% if case_data.respondent.role %}
+            <tr>
+                <td class="label">Rolle:</td>
+                <td class="value">{{ case_data.respondent.role }}</td>
+            </tr>
+            {% endif %}
+            {% if case_data.respondent.address %}
+            <tr>
+                <td class="label">Anschrift:</td>
+                <td class="value">{{ case_data.respondent.address }}</td>
+            </tr>
+            {% endif %}
+            {% if case_data.respondent.contact %}
+            <tr>
+                <td class="label">Kontakt:</td>
+                <td class="value">{{ case_data.respondent.contact }}</td>
+            </tr>
+            {% endif %}
+        </table>
+    </div>
+
+    <!-- Geschätzter Gegenstandswert -->
+    {% if case_data.financial_info and case_data.financial_info.claim_value_eur %}
+    <div class="section">
+        <h2>Geschätzter Gegenstandswert</h2>
+        <div class="claim-value">
+            <div class="amount">{{ case_data.financial_info.claim_value_eur }}</div>
+            {% if case_data.financial_info.claim_description %}
+            <div class="description">{{ case_data.financial_info.claim_description }}</div>
+            {% endif %}
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- Sachverhaltsdarstellung -->
+    <div class="section">
+        <h2>Sachverhaltsdarstellung</h2>
+
+        {% if case_data.factual_narrative.claimant_goal %}
+        <h3>Ziel des Mandanten</h3>
+        <div class="content-box">
+            <p>{{ case_data.factual_narrative.claimant_goal }}</p>
+        </div>
+        {% endif %}
+
+        {% if case_data.factual_narrative.party_relationship %}
+        <h3>Verhältnis der Parteien</h3>
+        <div class="content-box">
+            <p>{{ case_data.factual_narrative.party_relationship }}</p>
+        </div>
+        {% endif %}
+
+        {% if case_data.factual_narrative.chronological_timeline %}
+        <h3>Chronologischer Sachverhalt</h3>
+        {% for event in case_data.factual_narrative.chronological_timeline %}
+        <div class="timeline-item">
+            <div class="timeline-date">{{ event.date | default_if_empty("Datum unbekannt") }}</div>
+            <div class="timeline-event">{{ event.event }}</div>
+            {% if event.evidence_ref %}
+            <div class="timeline-evidence">({{ event.evidence_ref }})</div>
+            {% endif %}
+        </div>
+        {% endfor %}
+        {% endif %}
+    </div>
+
+    <!-- Beweisverzeichnis -->
+    {% if case_data.evidence and case_data.evidence.evidence_items %}
+    <div class="section">
+        <h2>Beweisverzeichnis</h2>
+        <ol class="evidence-list">
+            {% for item in case_data.evidence.evidence_items %}
+            <li><strong>Anlage {{ loop.index }}:</strong> {{ item }}</li>
+            {% endfor %}
+        </ol>
+    </div>
+    {% endif %}
+
+    <!-- Nächste Schritte -->
+    <div class="section">
+        <h2>Nächste Schritte</h2>
+        <div class="next-steps">
+            <ol>
+                <li>Kontaktieren Sie den Mandanten über sumii für weitere Details</li>
+                <li>Prüfen Sie die bereitgestellten Unterlagen</li>
+                <li>Vereinbaren Sie ggf. ein Erstgespräch zur Mandatierung</li>
+            </ol>
+        </div>
+    </div>
+
+    <!-- Legal Disclaimer -->
+    <div class="legal-disclaimer">
+        <h3>Rechtliche Hinweise</h3>
+
+        <p><strong>KI-generierte Analyse:</strong> Diese forensische Anamnese wurde mit KI-Unterstützung erstellt und dient ausschließlich der strukturierten Aufbereitung von Mandanteninformationen. Sie stellt keine rechtliche Beratung dar.</p>
+
+        <p><strong>Prüfungspflicht:</strong> Alle Angaben basieren auf den Informationen des Mandanten und wurden automatisiert strukturiert. Eine eigenständige anwaltliche Prüfung ist zwingend erforderlich.</p>
+
+        <p><strong>Kein Mandatsverhältnis:</strong> Durch diese Analyse entsteht kein Mandatsverhältnis. Ein Mandat kommt erst durch gesonderte Vereinbarung zustande.</p>
+
+        <p><strong>Datenschutz:</strong> Die Verarbeitung erfolgt unter Beachtung der DSGVO. Alle Informationen werden vertraulich behandelt.</p>
+    </div>
+
+    <!-- Footer -->
+    <div class="footer-info">
+        <p>Erstellt am {{ generation_date | format_german_date }} mit Sumii | Dokument-ID: {{ summary_id | default_if_empty("ENTWURF") }}</p>
+    </div>
+</body>
+</html>
