@@ -30,6 +30,27 @@ variable "enable_notifications" {
   default     = false
 }
 
+variable "mistral_api_key" {
+  description = "Mistral AI API key (sensitive)"
+  type        = string
+  sensitive   = true
+  default     = ""
+}
+
+variable "mistral_org_id" {
+  description = "Mistral AI Organization ID (sensitive)"
+  type        = string
+  sensitive   = true
+  default     = ""
+}
+
+variable "mistral_library_id" {
+  description = "Mistral AI Library ID (sensitive)"
+  type        = string
+  sensitive   = true
+  default     = ""
+}
+
 variable "project_name" {
   description = "Project name for resource naming"
   type        = string
@@ -41,38 +62,6 @@ variable "domain_name" {
   description = "Primary domain for SES and SSL"
   type        = string
   default     = "sumii.de"
-}
-
-variable "api_subdomain" {
-  description = "API subdomain"
-  type        = string
-  default     = "api"
-}
-
-# Database Configuration (RDS - for production, use local PostgreSQL for MVP)
-variable "db_instance_class" {
-  description = "RDS instance type"
-  type        = string
-  default     = "db.t4g.micro" # Free tier eligible
-}
-
-variable "db_name" {
-  description = "Database name"
-  type        = string
-  default     = "sumii_prod"
-}
-
-# S3 Configuration
-variable "s3_pdf_bucket_name" {
-  description = "S3 bucket for PDF storage (auto-generated if not provided)"
-  type        = string
-  default     = ""
-}
-
-variable "s3_documents_bucket_name" {
-  description = "S3 bucket for document uploads (auto-generated if not provided)"
-  type        = string
-  default     = ""
 }
 
 # ECS Fargate Configuration
@@ -92,6 +81,18 @@ variable "app_port" {
   description = "Application port"
   type        = number
   default     = 8000
+}
+
+variable "image_tag" {
+  description = "Docker image tag to deploy"
+  type        = string
+  default     = "latest"
+}
+
+variable "task_count" {
+  description = "Number of ECS tasks to run"
+  type        = number
+  default     = 1
 }
 
 # Tags

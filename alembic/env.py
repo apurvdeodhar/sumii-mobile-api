@@ -21,7 +21,8 @@ config = context.config
 database_url = os.getenv("DATABASE_URL") or settings.DATABASE_URL
 # Convert async URL to sync for Alembic
 database_url = database_url.replace("postgresql+asyncpg://", "postgresql://")
-config.set_main_option("sqlalchemy.url", database_url)
+# Escape % characters for ConfigParser (it treats % as interpolation syntax)
+config.set_main_option("sqlalchemy.url", database_url.replace("%", "%%"))
 
 # Interpret the config file for Python logging.
 # This line sets up loggers basically.

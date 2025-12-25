@@ -1,0 +1,9 @@
+# Trivy ignore file for sumii-mobile-api
+# https://aquasecurity.github.io/trivy/latest/docs/configuration/filtering/
+
+# AWS-managed encryption is sufficient for our use case
+AVD-AWS-0136
+AVD-AWS-0132
+
+# S3 access logging not required for development buckets
+AVD-AWS-0093

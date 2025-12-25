@@ -1,27 +1,49 @@
 # S3 Buckets for PDFs and Documents
+# Creates buckets for all environments so they coexist
 
-# PDF Storage Bucket (environment-specific naming)
+locals {
+  # Environments to create buckets for
+  s3_environments = toset(["local", "prod"])
+}
+
+################################################################################
+# PDF Storage Buckets
+################################################################################
 resource "aws_s3_bucket" "pdfs" {
-  bucket = var.s3_pdf_bucket_name != "" ? var.s3_pdf_bucket_name : "${local.common_name}-pdfs"
+  for_each = local.s3_environments
+  bucket   = "${var.project_name}-${each.key}-pdfs"
 
   tags = {
-    Name        = "${local.common_name}-pdfs"
+    Name        = "${var.project_name}-${each.key}-pdfs"
     Description = "Legal summary PDFs"
+    Environment = each.key
+    Terraform   = "true"
+    Application = "sumii-mobile-api"
   }
 }
 
-# PDF Bucket Versioning
 resource "aws_s3_bucket_versioning" "pdfs" {
-  bucket = aws_s3_bucket.pdfs.id
+  for_each = local.s3_environments
+  bucket   = aws_s3_bucket.pdfs[each.key].id
 
   versioning_configuration {
     status = "Enabled"
   }
 }
 
-# PDF Bucket Encryption
+resource "aws_s3_bucket_public_access_block" "pdfs" {
+  for_each = local.s3_environments
+  bucket   = aws_s3_bucket.pdfs[each.key].id
+
+  block_public_acls       = true
+  block_public_policy     = true
+  ignore_public_acls      = true
+  restrict_public_buckets = true
+}
+
 resource "aws_s3_bucket_server_side_encryption_configuration" "pdfs" {
-  bucket = aws_s3_bucket.pdfs.id
+  for_each = local.s3_environments
+  bucket   = aws_s3_bucket.pdfs[each.key].id
 
   rule {
     apply_server_side_encryption_by_default {
@@ -30,23 +52,30 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "pdfs" {
   }
 }
 
-# PDF Bucket Lifecycle (delete after 30 days for MVP)
 resource "aws_s3_bucket_lifecycle_configuration" "pdfs" {
-  bucket = aws_s3_bucket.pdfs.id
+  for_each = local.s3_environments
+  bucket   = aws_s3_bucket.pdfs[each.key].id
 
   rule {
     id     = "delete-old-pdfs"
     status = "Enabled"
 
+    filter {}
+
     expiration {
       days = 30
+    }
+
+    # Abort incomplete multipart uploads (CKV_AWS_300)
+    abort_incomplete_multipart_upload {
+      days_after_initiation = 7
     }
   }
 }
 
-# PDF Bucket CORS (for direct downloads from mobile app)
 resource "aws_s3_bucket_cors_configuration" "pdfs" {
-  bucket = aws_s3_bucket.pdfs.id
+  for_each = local.s3_environments
+  bucket   = aws_s3_bucket.pdfs[each.key].id
 
   cors_rule {
     allowed_headers = ["*"]
@@ -57,28 +86,44 @@ resource "aws_s3_bucket_cors_configuration" "pdfs" {
   }
 }
 
-# Document Upload Bucket (environment-specific naming)
+################################################################################
+# Document Upload Buckets
+################################################################################
 resource "aws_s3_bucket" "documents" {
-  bucket = var.s3_documents_bucket_name != "" ? var.s3_documents_bucket_name : "${local.common_name}-documents"
+  for_each = local.s3_environments
+  bucket   = "${var.project_name}-${each.key}-documents"
 
   tags = {
-    Name        = "${local.common_name}-documents"
+    Name        = "${var.project_name}-${each.key}-documents"
     Description = "User uploaded documents"
+    Environment = each.key
+    Terraform   = "true"
+    Application = "sumii-mobile-api"
   }
 }
 
-# Document Bucket Versioning
 resource "aws_s3_bucket_versioning" "documents" {
-  bucket = aws_s3_bucket.documents.id
+  for_each = local.s3_environments
+  bucket   = aws_s3_bucket.documents[each.key].id
 
   versioning_configuration {
     status = "Enabled"
   }
 }
 
-# Document Bucket Encryption
+resource "aws_s3_bucket_public_access_block" "documents" {
+  for_each = local.s3_environments
+  bucket   = aws_s3_bucket.documents[each.key].id
+
+  block_public_acls       = true
+  block_public_policy     = true
+  ignore_public_acls      = true
+  restrict_public_buckets = true
+}
+
 resource "aws_s3_bucket_server_side_encryption_configuration" "documents" {
-  bucket = aws_s3_bucket.documents.id
+  for_each = local.s3_environments
+  bucket   = aws_s3_bucket.documents[each.key].id
 
   rule {
     apply_server_side_encryption_by_default {
@@ -87,37 +132,32 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "documents" {
   }
 }
 
-# Document Bucket Lifecycle
 resource "aws_s3_bucket_lifecycle_configuration" "documents" {
-  bucket = aws_s3_bucket.documents.id
+  for_each = local.s3_environments
+  bucket   = aws_s3_bucket.documents[each.key].id
 
   rule {
     id     = "delete-old-documents"
     status = "Enabled"
 
+    filter {}
+
     expiration {
       days = 90 # Keep documents longer than PDFs
+    }
+
+    # Abort incomplete multipart uploads (CKV_AWS_300)
+    abort_incomplete_multipart_upload {
+      days_after_initiation = 7
     }
   }
 }
 
-# Outputs
-output "pdf_bucket_name" {
-  value       = aws_s3_bucket.pdfs.id
-  description = "Name of S3 bucket for PDFs"
-}
+################################################################################
+# Outputs - Current environment buckets
+################################################################################
 
-output "pdf_bucket_arn" {
-  value       = aws_s3_bucket.pdfs.arn
-  description = "ARN of S3 bucket for PDFs"
-}
-
-output "documents_bucket_name" {
-  value       = aws_s3_bucket.documents.id
-  description = "Name of S3 bucket for documents"
-}
-
-output "documents_bucket_arn" {
-  value       = aws_s3_bucket.documents.arn
-  description = "ARN of S3 bucket for documents"
+# Map environment to S3 bucket environment (dev/staging uses local buckets)
+locals {
+  s3_env = var.environment == "prod" ? "prod" : "local"
 }

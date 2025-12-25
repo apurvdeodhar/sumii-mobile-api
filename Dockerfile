@@ -1,5 +1,5 @@
-# Sumii Backend - Dockerfile
-# Multi-stage build for production-ready FastAPI backend
+# Sumii Mobile API - Dockerfile
+# Production-ready FastAPI backend with Alembic migrations
 
 FROM python:3.13-slim AS base
 
@@ -35,11 +35,15 @@ RUN uv venv && \
 COPY alembic.ini ./
 COPY alembic/ ./alembic/
 
+# Copy startup script and make executable
+COPY start.sh ./
+RUN chmod +x start.sh
+
 # Copy application code
 COPY app/ ./app/
 
 # Expose port
 EXPOSE 8000
 
-# Run database migrations and start server
-CMD ["/bin/bash", "-c", ". .venv/bin/activate && alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"]
+# Use start.sh: waits for Postgres, runs migrations, starts uvicorn
+CMD ["./start.sh"]

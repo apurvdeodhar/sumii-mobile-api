@@ -90,10 +90,10 @@ resource "aws_iam_role_policy" "s3_access_policy" {
           "s3:ListBucket"
         ]
         Resource = [
-          "${aws_s3_bucket.pdfs.arn}",
-          "${aws_s3_bucket.pdfs.arn}/*",
-          "${aws_s3_bucket.documents.arn}",
-          "${aws_s3_bucket.documents.arn}/*"
+          aws_s3_bucket.pdfs[local.s3_env].arn,
+          "${aws_s3_bucket.pdfs[local.s3_env].arn}/*",
+          aws_s3_bucket.documents[local.s3_env].arn,
+          "${aws_s3_bucket.documents[local.s3_env].arn}/*"
         ]
       }
     ]
@@ -165,15 +165,4 @@ resource "aws_iam_role_policy" "sqs_access_policy" {
       Resource = "arn:aws:sqs:${var.aws_region}:${local.account_id}:${var.project_name}-*"
     }]
   })
-}
-
-# Outputs (conditional)
-output "ecs_task_execution_role_arn" {
-  value       = var.enable_ecs ? aws_iam_role.ecs_task_execution_role[0].arn : null
-  description = "ARN of ECS task execution role"
-}
-
-output "ecs_task_role_arn" {
-  value       = var.enable_ecs ? aws_iam_role.ecs_task_role[0].arn : null
-  description = "ARN of ECS task role"
 }

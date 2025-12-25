@@ -125,9 +125,11 @@ Thumbs.db
 # ===========================
 CLAUDE.md
 **/CLAUDE.md
-# Ignore entire docs/ directory (development guides, not test docs)
-docs/
-/docs/
+
+# Ignore docs/ contents but not the directory itself (to allow exceptions)
+docs/*
+# Keep typescript-types.ts (auto-generated API types for mobile app)
+!docs/typescript-types.ts
 
 # ===========================
 # Uppercase .md files (except README.md)

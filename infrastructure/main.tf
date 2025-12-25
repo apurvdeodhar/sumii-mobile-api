@@ -9,6 +9,10 @@ terraform {
       source  = "hashicorp/aws"
       version = "~> 5.0"
     }
+    random = {
+      source  = "hashicorp/random"
+      version = "~> 3.0"
+    }
   }
 
   # Backend configuration - store state in S3 (created by sumii-global-infra/bootstrap)
@@ -31,12 +35,9 @@ provider "aws" {
 
 # Data sources
 data "aws_caller_identity" "current" {}
-data "aws_availability_zones" "available" {
-  state = "available"
-}
 
 # Locals
 locals {
   account_id  = data.aws_caller_identity.current.account_id
-  common_name = "${var.project_name}-${var.environment}"
+  common_name = "sumii-mobile-api"
 }

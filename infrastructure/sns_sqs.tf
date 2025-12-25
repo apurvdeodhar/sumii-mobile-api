@@ -9,12 +9,16 @@
 
 # SNS Topic for notification fanout
 resource "aws_sns_topic" "notifications" {
-  count = var.enable_notifications ? 1 : 0
-  name  = "${local.common_name}-notifications"
+  count             = var.enable_notifications ? 1 : 0
+  name              = "${local.common_name}-notifications"
+  kms_master_key_id = "alias/aws/sns" # Use AWS managed key for encryption
 
   tags = {
     Name        = "${local.common_name}-notifications"
     Description = "Fanout topic for all notifications"
+    Environment = var.environment
+    Terraform   = "true"
+    Application = "sumii-mobile-api"
   }
 }
 
@@ -23,9 +27,13 @@ resource "aws_sqs_queue" "notification_dlq" {
   count                     = var.enable_notifications ? 1 : 0
   name                      = "${local.common_name}-notification-dlq"
   message_retention_seconds = 1209600 # 14 days
+  sqs_managed_sse_enabled   = true    # Enable server-side encryption
 
   tags = {
-    Name = "${local.common_name}-notification-dlq"
+    Name        = "${local.common_name}-notification-dlq"
+    Environment = var.environment
+    Terraform   = "true"
+    Application = "sumii-mobile-api"
   }
 }
 
@@ -36,6 +44,7 @@ resource "aws_sqs_queue" "push_notifications" {
   visibility_timeout_seconds = 30
   message_retention_seconds  = 86400 # 1 day
   receive_wait_time_seconds  = 10    # Long polling
+  sqs_managed_sse_enabled    = true  # Enable server-side encryption
 
   redrive_policy = jsonencode({
     deadLetterTargetArn = aws_sqs_queue.notification_dlq[0].arn
@@ -43,7 +52,10 @@ resource "aws_sqs_queue" "push_notifications" {
   })
 
   tags = {
-    Name = "${local.common_name}-push-notifications"
+    Name        = "${local.common_name}-push-notifications"
+    Environment = var.environment
+    Terraform   = "true"
+    Application = "sumii-mobile-api"
   }
 }
 
@@ -54,6 +66,7 @@ resource "aws_sqs_queue" "email_notifications" {
   visibility_timeout_seconds = 60
   message_retention_seconds  = 86400
   receive_wait_time_seconds  = 10
+  sqs_managed_sse_enabled    = true # Enable server-side encryption
 
   redrive_policy = jsonencode({
     deadLetterTargetArn = aws_sqs_queue.notification_dlq[0].arn
@@ -61,7 +74,10 @@ resource "aws_sqs_queue" "email_notifications" {
   })
 
   tags = {
-    Name = "${local.common_name}-email-notifications"
+    Name        = "${local.common_name}-email-notifications"
+    Environment = var.environment
+    Terraform   = "true"
+    Application = "sumii-mobile-api"
   }
 }
 
@@ -131,20 +147,4 @@ resource "aws_sns_topic_subscription" "email_notifications" {
   filter_policy = jsonencode({
     notification_type = ["email"]
   })
-}
-
-# Outputs (conditional)
-output "sns_notifications_topic_arn" {
-  value       = var.enable_notifications ? aws_sns_topic.notifications[0].arn : null
-  description = "ARN of SNS notifications topic"
-}
-
-output "push_notifications_queue_url" {
-  value       = var.enable_notifications ? aws_sqs_queue.push_notifications[0].url : null
-  description = "URL of push notifications SQS queue"
-}
-
-output "email_notifications_queue_url" {
-  value       = var.enable_notifications ? aws_sqs_queue.email_notifications[0].url : null
-  description = "URL of email notifications SQS queue"
 }

@@ -46,11 +46,65 @@ repos:
         args: [--baseline, .secrets.baseline]
         exclude: package.lock.json
 
-  # OpenTofu/Terraform formatting
+  # ===========================================================================
+  # Terraform Hooks (from antonbabenko/pre-commit-terraform)
+  # https://github.com/antonbabenko/pre-commit-terraform
+  # ===========================================================================
   - repo: https://github.com/antonbabenko/pre-commit-terraform
-    rev: v1.88.0
+    rev: v1.96.3
     hooks:
+      # Format Terraform files
       - id: terraform_fmt
-        files: infrastructure/tofu/.*\.tf$
+        name: Terraform Format
+        files: ^infrastructure/
+        args:
+          - --args=-recursive
+
+      # Validate Terraform configuration
       - id: terraform_validate
-        files: infrastructure/tofu/.*\.tf$
+        name: Terraform Validate
+        files: ^infrastructure/
+        args:
+          - --args=-no-color
+          - --hook-config=--retry-once-with-cleanup=true
+
+      # Generate README documentation from Terraform
+      - id: terraform_docs
+        name: Terraform Docs
+        files: ^infrastructure/
+        args:
+          - --hook-config=--path-to-file=README.md
+          - --hook-config=--add-to-existing-file=true
+          - --hook-config=--create-file-if-not-exist=true
+
+      # TFLint - Terraform linter for best practices
+      - id: terraform_tflint
+        name: TFLint
+        files: ^infrastructure/
+        args:
+          - --args=--config=__GIT_WORKING_DIR__/.tflint.hcl
+
+      # Checkov - Security and compliance scanner
+      - id: terraform_checkov
+        name: Checkov Security Scan
+        files: ^infrastructure/
+        args:
+          - --args=--quiet
+          - --args=--compact
+          # Skip checks that don't apply to our setup
+          # CKV_TF_1: Module sources with commit hash (we use version pins)
+          # CKV_AWS_149: KMS encryption for Secrets Manager (optional, using AWS managed keys)
+          # CKV_AWS_338: CloudWatch log retention (14 days is fine for dev)
+          # CKV_AWS_158: CloudWatch log KMS encryption (optional)
+          - --args=--skip-check CKV_TF_1,CKV_AWS_144,CKV_AWS_145,CKV2_AWS_6,CKV_AWS_18,CKV_AWS_149,CKV_AWS_338,CKV_AWS_158
+
+      # Trivy - Vulnerability scanner
+      - id: terraform_trivy
+        name: Trivy Vulnerability Scan
+        files: ^infrastructure/
+        args:
+          - --args=--severity=HIGH,CRITICAL
+          - --args=--skip-dirs=**/.terraform
+          - --args=--exit-code=1
+          # AVD-AWS-0136: Allow AWS-managed KMS keys for encryption (sufficient for our needs)
+          - --args=--ignorefile=__GIT_WORKING_DIR__/.trivyignore

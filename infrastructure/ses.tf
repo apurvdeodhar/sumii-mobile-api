@@ -60,10 +60,14 @@ resource "aws_ses_configuration_set" "main" {
 
 # SNS Topic for bounce/complaint notifications
 resource "aws_sns_topic" "ses_notifications" {
-  name = "${local.common_name}-ses-notifications"
+  name              = "${local.common_name}-ses-notifications"
+  kms_master_key_id = "alias/aws/sns" # Use AWS managed key for encryption
 
   tags = {
-    Name = "${local.common_name}-ses-notifications"
+    Name        = "${local.common_name}-ses-notifications"
+    Environment = var.environment
+    Terraform   = "true"
+    Application = "sumii-mobile-api"
   }
 }
 
@@ -77,21 +81,4 @@ resource "aws_ses_event_destination" "sns" {
   sns_destination {
     topic_arn = aws_sns_topic.ses_notifications.arn
   }
-}
-
-# Outputs
-output "ses_domain_identity" {
-  value       = aws_ses_domain_identity.main.domain
-  description = "SES domain identity"
-}
-
-output "ses_dkim_tokens" {
-  value       = aws_ses_domain_dkim.main.dkim_tokens
-  description = "DKIM tokens for DNS configuration"
-  sensitive   = true
-}
-
-output "ses_configuration_set" {
-  value       = aws_ses_configuration_set.main.name
-  description = "SES configuration set name"
 }
