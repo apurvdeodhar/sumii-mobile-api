@@ -23,9 +23,11 @@ open CLAUDE.md
 - **CLAUDE.md** - Comprehensive development guide (start here!)
 - **tests/README.md** - **Testing & TDD Guide** (required reading!)
 - **docs/CURRENT_STATE.md** - Current project status and features
-- **docs/UV_ALEMBIC_GUIDE.md** - Beginner's guide to uv & Alembic
-- **infrastructure/tofu/** - OpenTofu configuration for AWS (NOT Terraform!)
-- **API Docs** - http://localhost:8000/docs (Swagger UI when running)
+- **docs/MOBILE_APP_INTEGRATION.md** - Mobile app integration guide
+- **docs/PROD_DEPLOYMENT.md** - Production deployment to AWS ECS
+- **docs/typescript-types.ts** - TypeScript types for mobile app (auto-generated)
+- **infrastructure/** - Terraform configuration for AWS
+- **API Docs** - https://api.sumii.de/docs (Swagger UI)
 
 ## 🔧 Tech Stack
 
@@ -45,21 +47,32 @@ sumii-mobile-api/
 │   ├── api/v1/            # API endpoints (versioned)
 │   ├── models/            # SQLAlchemy ORM models
 │   ├── schemas/           # Pydantic validation schemas
-│   ├── utils/             # Utilities (security, helpers)
-│   └── tests/             # Unit + integration tests
+│   ├── services/          # Business logic services
+│   └── utils/             # Utilities (security, helpers)
 ├── alembic/               # Database migrations
 │   └── versions/          # Migration files
 ├── docs/                  # Documentation
-│   ├── CURRENT_STATE.md   # Project status
-│   └── UV_ALEMBIC_GUIDE.md
-├── infrastructure/        # OpenTofu for AWS
-│   └── tofu/
+│   ├── MOBILE_APP_INTEGRATION.md  # Mobile integration guide
+│   ├── PROD_DEPLOYMENT.md         # Production deployment
+│   └── typescript-types.ts        # TypeScript types (auto-gen)
+├── infrastructure/        # Terraform for AWS
+│   ├── ecs.tf            # ECS Fargate task & service
+│   ├── rds.tf            # RDS PostgreSQL database
+│   ├── s3.tf             # S3 buckets (PDFs, documents)
+│   ├── sns_sqs.tf        # SNS/SQS for notifications
+│   └── outputs.tf        # Centralized Terraform outputs
+├── scripts/               # Utility scripts
+│   ├── build-and-push.sh # Docker build & ECR push
+│   └── pydantic_to_typescript.py # TypeScript type generator
 ├── Dockerfile             # Multi-stage Docker build
+├── start.sh               # Container startup (migrations + uvicorn)
 ├── docker-compose.yml     # PostgreSQL + Backend services
 ├── pyproject.toml         # Dependencies (uv package manager)
 ├── alembic.ini            # Alembic configuration
 ├── .env                   # Secrets (NEVER COMMIT!)
-├── .pre-commit-config.yaml # 14 automated code quality checks
+├── .pre-commit-config.yaml # 18 automated code quality checks
+├── .tflint.hcl            # TFLint configuration
+├── .trivyignore           # Trivy security scan exceptions
 ├── CLAUDE.md              # Development guide
 └── README.md              # This file
 ```
@@ -294,16 +307,34 @@ logger.error("Error message")
 
 ## 🚀 Deployment
 
+### Production (AWS ECS Fargate)
+
+**Live API**: https://api.sumii.de
+
+| Resource | Details |
+|----------|--------|
+| ECS Cluster | `sumii-global-cluster` |
+| Service | `sumii-mobile-api` |
+| RDS | `sumii-mobile-api-db-v2` (PostgreSQL 14) |
+| Region | `eu-central-1` |
+
+**Deploy:**
+```bash
+# Build and push Docker image
+./scripts/build-and-push.sh
+
+# Apply infrastructure
+cd infrastructure && terraform apply
+```
+
+See `docs/PROD_DEPLOYMENT.md` for full deployment guide.
+
 ### Local Development
 
-- Docker Compose (PostgreSQL + FastAPI)
-- Hot reload enabled
-
-### Production (AWS)
-
-- See `infrastructure/tofu/README.md` for OpenTofu deployment
-- ECS Fargate + RDS PostgreSQL + ElastiCache Redis
-- Automated via GitHub Actions
+```bash
+docker-compose up -d           # Start PostgreSQL + Backend
+curl http://localhost:8000/health  # Verify
+```
 
 ## 🔒 Security
 
@@ -316,39 +347,21 @@ logger.error("Error message")
 
 **Production**: Use AWS Secrets Manager
 
-## 📊 Current Status (Updated: 2025-12-20)
+## 📊 Current Status (Updated: 2025-12-25)
 
 **Project**: Production-ready MVP ✅
-**Test Pass Rate**: 96% (104/108 tests passing)
-**Container Names**: `sumii-mobile-api`, `sumii-mobile-db`
-**Network**: `sumii-mobile-network`
-
-### Test Status
-
-| Category              | Status               | Coverage               |
-| --------------------- | -------------------- | ---------------------- |
-| **Unit Tests**        | ✅ 100% (44/44)      | Fast, isolated, mocked |
-| **Integration Tests** | ✅ 93% (54/58)       | Multi-component tests  |
-| **E2E Tests**         | ✅ 100% (6/6)        | Complete workflows     |
-| **Overall**           | ✅ **96% (104/108)** | Exceeds 80% target     |
-
-**Test Structure:**
-
-- `tests/unit/` - Fast, isolated unit tests (mocked dependencies)
-- `tests/integration/` - Integration tests (multiple components)
-- `tests/e2e/` - End-to-end tests (complete workflows)
-
-**Run tests:** `pytest -v` (see [Testing Guide](tests/README.md))
+**Live API**: https://api.sumii.de/health
+**Container**: `sumii-mobile-api` on ECS Fargate
 
 ### Quality Checks
 
-- ✅ **Pre-commit**: 14/14 hooks passing (Ruff, Mypy, secret detection)
-- ✅ **Docker**: Running and verified ✅
-- ✅ **TDD**: Strictly enforced - all new features have tests
-- ✅ **Code Coverage**: Run `pytest --cov=app` to check (target: 80%+)
+- ✅ **Pre-commit**: 18/18 hooks passing (Ruff, Mypy, TFLint, Checkov, Trivy)
+- ✅ **Tests**: 96% pass rate (104/108 tests)
+- ✅ **Security**: SQS/SNS encryption, S3 public access blocks
+- ✅ **TDD**: Strictly enforced
 
 ---
 
-**Status**: ✅ **Production-ready** - All core features implemented and tested
+**Status**: ✅ **Production-deployed** - API running at api.sumii.de
 
 For detailed development guide, see `CLAUDE.md`
