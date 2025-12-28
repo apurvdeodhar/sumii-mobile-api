@@ -54,9 +54,12 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
     verification_token_secret = settings.SECRET_KEY
 
     async def on_after_register(self, user: User, request: Request | None = None):
-        """Called after user registration"""
-        # Email verification will be sent via on_after_request_verify
-        pass
+        """Called after user registration - sends welcome email"""
+        from app.services.email_service import EmailService
+
+        email_service = EmailService()
+        # Pass user's preferred language for localized email
+        await email_service.send_welcome_email(user.email, language=user.language or "de")
 
     async def on_after_forgot_password(self, user: User, token: str, request: Request | None = None):
         """Send password reset email via AWS SES"""

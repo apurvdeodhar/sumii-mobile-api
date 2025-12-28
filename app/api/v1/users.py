@@ -37,6 +37,7 @@ class UserProfileResponse(BaseModel):
 
     id: str
     email: str
+    nickname: str | None = None
     first_name: str | None = None
     last_name: str | None = None
     phone: str | None = None
@@ -106,6 +107,7 @@ async def get_profile(
     return UserProfileResponse(
         id=str(current_user.id),
         email=current_user.email,
+        nickname=current_user.nickname,
         first_name=current_user.first_name,
         last_name=current_user.last_name,
         phone=current_user.phone,
@@ -150,6 +152,7 @@ async def update_profile(
     return UserProfileResponse(
         id=str(current_user.id),
         email=current_user.email,
+        nickname=current_user.nickname,
         first_name=current_user.first_name,
         last_name=current_user.last_name,
         phone=current_user.phone,

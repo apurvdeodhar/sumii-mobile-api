@@ -37,6 +37,7 @@ class User(SQLAlchemyBaseUserTableUUID, Base):
     __tablename__ = "users"
 
     # Custom fields for Sumii mobile app
+    nickname: Mapped[str | None] = mapped_column(String(100), nullable=True)  # Display name (like Claude's nickname)
     language: Mapped[str | None] = mapped_column(
         String, nullable=True, default="de"
     )  # User's preferred language (de, en)

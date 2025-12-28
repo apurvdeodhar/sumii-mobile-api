@@ -33,7 +33,7 @@ router = APIRouter(prefix="/api/v1/anwalt", tags=["anwalt"])
 async def search_lawyers(
     current_user: Annotated[User, Depends(current_active_user)],
     anwalt_service: Annotated[AnwaltService, Depends(get_anwalt_service)],
-    language: str = Query(..., description="Language code (de or en)", regex="^(de|en)$"),
+    language: str = Query(..., description="Language code (de or en)", pattern="^(de|en)$"),
     legal_area: str | None = Query(None, description="Legal specialization filter (e.g., Mietrecht)"),
     lat: float | None = Query(None, description="Latitude for location-based search"),
     lng: float | None = Query(None, description="Longitude for location-based search"),

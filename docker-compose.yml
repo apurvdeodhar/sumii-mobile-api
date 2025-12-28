@@ -29,6 +29,8 @@ services:
     container_name: sumii-mobile-api
     environment:
       - DATABASE_URL=postgresql+asyncpg://postgres:postgres@postgres:5432/sumii_dev
+      - DB_HOST=postgres
+      - ENVIRONMENT=development
       - MISTRAL_API_KEY=${MISTRAL_API_KEY}
       - MISTRAL_ORG_ID=${MISTRAL_ORG_ID}
       - MISTRAL_LIBRARY_ID=${MISTRAL_LIBRARY_ID}
@@ -46,7 +48,7 @@ services:
       # AWS SES (for email sending)
       - SES_FROM_EMAIL=${SES_FROM_EMAIL:-noreply@sumii.de}
       - SES_CONFIGURATION_SET=${SES_CONFIGURATION_SET:-sumii-local-ses-config}
-      - FRONTEND_URL=${FRONTEND_URL:-http://localhost:3000}
+      - FRONTEND_URL=${FRONTEND_URL:-https://app.sumii.de}
       # Anwalt service integration
       - ANWALT_API_BASE_URL=${ANWALT_API_BASE_URL:-http://host.docker.internal:8001}
       - ANWALT_API_KEY=${ANWALT_API_KEY:-}

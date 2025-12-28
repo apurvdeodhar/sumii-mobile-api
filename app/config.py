@@ -39,6 +39,10 @@ class Settings(BaseSettings):
     AWS_SECRET_ACCESS_KEY: str | None = None
     AWS_REGION: str = "eu-central-1"
     S3_BUCKET: str = "sumii-pdfs-dev"
+    S3_DOCUMENTS_BUCKET: str | None = None  # Separate bucket for documents
+
+    # AWS SES Configuration
+    SES_CONFIGURATION_SET: str | None = None  # Optional SES configuration set
 
     # sumii-anwalt Backend Integration
     ANWALT_API_BASE_URL: str = "http://localhost:8001"  # Default to local development

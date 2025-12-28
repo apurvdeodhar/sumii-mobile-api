@@ -1,5 +1,22 @@
 # SES (Simple Email Service) Configuration
 # Automated domain verification using Route53 (hosted in global-infra)
+#
+# IMPORTANT: SES Production Access
+# ================================
+# By default, new AWS accounts have SES in "sandbox" mode where you can only
+# send to verified email addresses. To send to any email:
+#
+# 1. Request production access via AWS CLI:
+#    aws sesv2 put-account-details \
+#      --production-access-enabled \
+#      --mail-type TRANSACTIONAL \
+#      --website-url "https://sumii.de" \
+#      --use-case-description "User registration, verification, and password reset emails for Sumii legal assistant mobile app" \
+#      --region eu-central-1
+#
+# 2. Or via AWS Console: SES → Account dashboard → Request production access
+#
+# AWS typically approves within 24 hours for legitimate use cases.
 
 # Look up the Route53 zone created by global-infra
 data "aws_route53_zone" "main" {
