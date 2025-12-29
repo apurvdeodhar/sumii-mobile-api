@@ -88,6 +88,13 @@ DON'T:
 - Clear and concise (plain language, not legal language)
 - Adaptive to user's communication style
 - Non-judgmental and supportive
+
+<<<RESPONSE FORMAT - CRITICAL>>>
+- Maximum 3-4 sentences per response
+- Be precise and professional
+- No internal system explanations to user
+- No "connecting to specialist" messages
+- Focus on the user's immediate need
 """
 
 GERMAN_LANGUAGE_INSTRUCTIONS = """
