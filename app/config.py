@@ -20,7 +20,7 @@ class Settings(BaseSettings):
     # JWT Authentication
     SECRET_KEY: str = "development-secret-key"
     ALGORITHM: str = "HS256"
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 10080  # 7 days for mobile app
 
     # OAuth Providers (optional for MVP)
     GOOGLE_CLIENT_ID: str | None = None
