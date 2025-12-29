@@ -6,7 +6,19 @@ Backend for Sumii Mobile App (User-Facing)
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api.v1 import anwalt, auth, conversations, documents, events, status, summaries, users, webhooks, websocket
+from app.api.v1 import (
+    anwalt,
+    auth,
+    conversations,
+    documents,
+    events,
+    status,
+    summaries,
+    sync,
+    users,
+    webhooks,
+    websocket,
+)
 from app.utils.logging_config import setup_logging
 
 # Configure logging from environment variables (one-time setup)
@@ -52,3 +64,4 @@ app.include_router(events.router)  # SSE events endpoint (notifications)
 app.include_router(users.router)  # Users endpoints (push token, profile)
 app.include_router(webhooks.router)  # Webhook endpoints (receive events from sumii-anwalt)
 app.include_router(websocket.router, tags=["websocket"])
+app.include_router(sync.router, prefix="/api/v1", tags=["sync"])  # Sync endpoint for mobile
