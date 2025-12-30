@@ -10,6 +10,7 @@ from sqlalchemy.orm import selectinload
 
 from app.database import get_db
 from app.models.conversation import Conversation
+from app.models.message import Message
 from app.models.user import User
 from app.schemas.conversation import (
     ConversationCreate,
@@ -196,4 +197,67 @@ async def delete_conversation(
         )
 
     await db.delete(conversation)
+    await db.commit()
+
+
+@router.delete(
+    "/conversations/{conversation_id}/messages/{message_id}/and-after",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Delete message and all following messages (for retry)",
+)
+async def delete_messages_from_and_after(
+    conversation_id: UUID,
+    message_id: UUID,
+    current_user: Annotated[User, Depends(current_active_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> None:
+    """Delete a message and all messages that came after it.
+
+    Used for retry/regenerate functionality - clears conversation tail
+    before the user resends their message.
+
+    - **conversation_id**: UUID of the conversation
+    - **message_id**: UUID of the first message to delete (and all after it)
+    - Returns 404 if conversation or message doesn't exist
+    - Returns 403 if conversation belongs to another user
+    - Returns 204 No Content on success
+    """
+    # First verify conversation exists and belongs to user
+    result = await db.execute(select(Conversation).where(Conversation.id == conversation_id))
+    conversation = result.scalar_one_or_none()
+
+    if not conversation:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Conversation {conversation_id} not found",
+        )
+
+    if conversation.user_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authorized to modify this conversation",
+        )
+
+    # Find the target message to get its created_at timestamp
+    result = await db.execute(
+        select(Message).where(Message.id == message_id, Message.conversation_id == conversation_id)
+    )
+    target_message = result.scalar_one_or_none()
+
+    if not target_message:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Message {message_id} not found in conversation {conversation_id}",
+        )
+
+    # Delete all messages with created_at >= target message's created_at
+    # This includes the target message and everything after it
+    from sqlalchemy import delete
+
+    await db.execute(
+        delete(Message).where(
+            Message.conversation_id == conversation_id,
+            Message.created_at >= target_message.created_at,
+        )
+    )
     await db.commit()
