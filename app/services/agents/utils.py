@@ -30,26 +30,54 @@ class AgentFactory:
         instructions: str,
         tools: list[dict] | None = None,
     ) -> str:
-        """Create a Mistral AI agent with common configuration
+        """Create or Update a Mistral AI agent
+
+        Best Practice: Check if agent exists by name first to avoid duplicates.
+        If exists -> Update instructions/tools
+        If new -> Create
 
         Args:
-            model: Mistral model to use (e.g., "mistral-medium-2505")
+            model: Mistral model to use
             name: Agent name
-            description: Short description of agent's purpose
-            instructions: Detailed instructions for agent behavior
-            tools: Optional list of function calling tools
+            description: Agent description
+            instructions: Agent instructions
+            tools: Process list of tools
 
         Returns:
             str: Agent ID
         """
-        agent = self.client.beta.agents.create(
-            model=model,
-            name=name,
-            description=description,
-            instructions=instructions,
-            tools=tools or [],
-        )
-        return agent.id
+        # 1. List existing agents to check for duplicates
+        # Note: Pagination might be needed if you have > 100 agents,
+        # but for this app we have < 10.
+        existing_agents = self.client.beta.agents.list()
+
+        target_agent = None
+        for agent in existing_agents:
+            if agent.name == name:
+                target_agent = agent
+                break
+
+        if target_agent:
+            # 2. Update existing agent
+            # This ensures existing conversations (bound to this Agent ID)
+            # get the new Prompt/Instructions immediately.
+            self.client.beta.agents.update(
+                agent_id=target_agent.id,
+                description=description,
+                instructions=instructions,
+                tools=tools or [],
+            )
+            return target_agent.id
+        else:
+            # 3. Create new agent
+            agent = self.client.beta.agents.create(
+                model=model,
+                name=name,
+                description=description,
+                instructions=instructions,
+                tools=tools or [],
+            )
+            return agent.id
 
 
 # Common instruction templates
@@ -82,6 +110,30 @@ DON'T:
 - Don't overwhelm users with legal technicalities
 - Don't be overly emotional or effusive in empathy
 - Don't act like a lawyer - act like a helpful assistant preparing information for lawyers
+
+<<<DOCUMENT ATTACHMENTS - CRITICAL (READ IF PRESENT)>>>
+
+If the user attaches a file (image, PDF), the system will automatically extract the text using OCR
+and include it in the message above the user's request.
+Look for: "--- BEGIN EXTRACTED CONTENT FROM 'filename' ---"
+
+DO:
+- TREAT this extracted text as if you can "see" the document
+- ANALYZE the content to answer the user's question
+- ACKNOWLEDGE the document (e.g., "I see your driver's license with name X")
+- USE the information to pre-fill facts or answer questions
+
+DON'T:
+- STOP saying "I don't have tools to analyze logs/files" - you HAVE the text right here!
+- Don't ask for information that is clearly visible in the extracted text
+
+<<<PRIVACY & DATA HANDLING - CRITICAL>>>
+
+You are a LEGAL ASSISTANT. Handling personal documents (contracts, licenses, letters) is your JOB.
+- The user has voluntarily uploaded these documents for your review.
+- It is safe and permitted to read names, dates, addresses, and personal details from these files.
+- DO NOT REFUSE to analyze a document because it contains personal info (PII).
+- Treat all data confidentially, but YOU MUST PROCESS IT to help the user.
 
 <<<TONE AND STYLE>>>
 - Professional and efficient

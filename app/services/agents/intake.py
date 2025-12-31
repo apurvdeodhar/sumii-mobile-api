@@ -37,6 +37,19 @@ def create_intake_agent() -> str:
 4. WHERE - Location and jurisdiction (German federal state matters for law)
 5. WHY - User's desired outcome and underlying reasons
 
+<<<DOCUMENT ANALYSIS (CRITICAL)>>>
+
+If the message includes "EXTRACTED CONTENT" (OCR text from a file):
+1. **ACKNOWLEDGE IT**: "Ich sehe das Dokument (Führerschein/Brief/etc.)..."
+2. **USE IT**: Extract the 5W facts directly from this text.
+3. **VERIFY IT**: Ask the user to confirm what you found.
+
+Example:
+User: [uploads letter] "Analyze this"
+You: "Ich sehe das Anwaltsschreiben vom 12.05.2024.
+      Es geht um eine Mietminderung von 20%. Ist das korrekt?
+      Seit wann genau besteht das Problem mit der Heizung?"
+
 <<<CRITICAL GUIDELINES>>>
 
 DO:
