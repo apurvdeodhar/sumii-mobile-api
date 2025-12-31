@@ -22,7 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.database import get_db
-from app.models import Conversation, Message, MessageRole, User
+from app.models import Conversation, Document, Message, MessageRole, User
 from app.services.agents import MistralAgentsService, get_mistral_agents_service
 from app.utils.security import verify_token_ws
 
@@ -448,16 +448,65 @@ async def websocket_chat(
                 await websocket.send_json({"type": "error", "error": "Empty message", "code": "empty_message"})
                 continue
 
-            # Save user message to database
-            user_message = Message(conversation_id=conversation.id, role=MessageRole.USER, content=user_message_content)
+            # Parse document_ids from message (for file attachments)
+            document_ids_raw = data.get("document_ids", [])
+            document_ids: list[UUID] = []
+            for did in document_ids_raw:
+                try:
+                    document_ids.append(UUID(did) if isinstance(did, str) else did)
+                except (ValueError, TypeError):
+                    pass  # Skip invalid UUIDs
+
+            # Fetch document OCR text and augment message for LLM
+            augmented_content = user_message_content
+            if document_ids:
+                docs_result = await db.execute(select(Document).where(Document.id.in_(document_ids)))
+                documents = docs_result.scalars().all()
+
+                doc_context_parts = []
+                for doc in documents:
+                    if doc.ocr_text:
+                        doc_context_parts.append(
+                            f"--- BEGIN EXTRACTED CONTENT FROM '{doc.filename}' ---\n"
+                            f"{doc.ocr_text}\n"
+                            f"--- END EXTRACTED CONTENT ---"
+                        )
+                    else:
+                        doc_context_parts.append(
+                            f"[File attached: {doc.filename}] (No text content could be extracted from this file)"
+                        )
+
+                if doc_context_parts:
+                    augmented_content = (
+                        "IMPORTANT: The user has uploaded file(s). The text content has been automatically extracted "
+                        "from these files using OCR and is provided below. You DO have access to this content - "
+                        "please analyze the extracted text to answer the user's question.\n\n"
+                        + "\n\n".join(doc_context_parts)
+                        + "\n\n--- USER'S REQUEST ---\n"
+                        + user_message_content
+                    )
+
+            # Save user message to database (with document_ids)
+            user_message = Message(
+                conversation_id=conversation.id,
+                role=MessageRole.USER,
+                content=user_message_content,
+                document_ids=[str(did) for did in document_ids] if document_ids else None,
+            )
             db.add(user_message)
             await db.commit()
 
+            # DEBUG: Log augmented content being sent to LLM
+            if document_ids:
+                print("[WebSocket] Sending augmented content to LLM (first 500 chars):")
+                print(augmented_content[:500] if len(augmented_content) > 500 else augmented_content)
+
             # Process message with Mistral Agents (using Conversations API)
+            # Use augmented_content (with document context) for LLM
             await process_with_agents(
                 websocket=websocket,
                 conversation=conversation,
-                user_message_content=user_message_content,
+                user_message_content=augmented_content,
                 agents_service=agents_service,
                 db=db,
             )
@@ -466,6 +515,12 @@ async def websocket_chat(
         # Client disconnected - this is normal, do nothing
         pass
     except Exception as e:
+        # Log the error for debugging
+        import traceback
+
+        print(f"[WebSocket ERROR] {type(e).__name__}: {e}")
+        traceback.print_exc()
+
         # Unexpected error - try to send error to client if connection is still open
         try:
             await websocket.send_json({"type": "error", "error": str(e), "code": "internal_error"})
