@@ -99,6 +99,23 @@ class MistralAgentsService:
         """
         return self.agents.get(agent_name)
 
+    @property
+    def is_initialized(self) -> bool:
+        """Check if all agents are initialized"""
+        return len(self.agents) == 4
+
+    def status(self) -> dict:
+        """Get agent initialization status for health checks
+
+        Returns:
+            dict: Status information including initialized flag and agent count
+        """
+        return {
+            "initialized": self.is_initialized,
+            "agent_count": len(self.agents),
+            "agents": list(self.agents.keys()) if self.agents else [],
+        }
+
 
 # Global service instance
 _mistral_agents_service: MistralAgentsService | None = None
