@@ -64,6 +64,7 @@ class MessageResponse(BaseModel):
     content: str
     agent_name: str | None
     function_call: dict[str, Any] | None
+    document_ids: list[UUID] | None = None  # Attached document UUIDs
     created_at: datetime
 
     model_config = {"from_attributes": True}
