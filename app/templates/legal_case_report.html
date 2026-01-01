@@ -3,15 +3,15 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>
-      Forensische Anamnese - {{ case_data.claimant.name |
-      default_if_empty("Mandant") }}
-    </title>
+    <title>Fallzusammenfassung - {{ case_data.claimant.name | default_if_empty("Mandant") }}</title>
     <style>
       /* Sumii Urban Color Palette - Professional & Clean */
       :root {
         --sumii-primary: #34495e;
         --sumii-secondary: #7b8d9f;
+        --sumii-accent-pink: #f342ad;
+        --sumii-accent-green: #5fc99e;
+        --sumii-accent-blue: #809ddc;
         --sumii-light: #f8f9fa;
         --sumii-border: #e9ecef;
         --sumii-text: #2c3e50;
@@ -22,9 +22,10 @@
         size: A4;
         margin: 2cm 2cm 2.5cm 2cm;
         @top-center {
-          content: "Sumii | Forensische Anamnese | Streng Vertraulich";
+          content: "sumii · Fallzusammenfassung · Vertraulich";
           font-size: 8pt;
           color: var(--sumii-secondary);
+          font-family: 'Inter', 'Helvetica Neue', Arial, sans-serif;
         }
         @bottom-center {
           content: "Seite " counter(page) " von " counter(pages);
@@ -34,7 +35,7 @@
       }
 
       body {
-        font-family: "Helvetica Neue", Arial, sans-serif;
+        font-family: 'Inter', 'Helvetica Neue', Arial, sans-serif;
         font-size: 10pt;
         line-height: 1.5;
         color: var(--sumii-text);
@@ -44,17 +45,17 @@
 
       /* AI Disclaimer Banner */
       .ai-disclaimer {
-        background-color: #fff3cd;
-        border: 1px solid #ffc107;
-        border-radius: 4px;
-        padding: 10px 15px;
+        background: linear-gradient(135deg, rgba(243, 66, 173, 0.08) 0%, rgba(95, 201, 158, 0.08) 50%, rgba(128, 157, 220, 0.08) 100%);
+        border: 1px solid rgba(52, 73, 94, 0.2);
+        border-radius: 8px;
+        padding: 12px 20px;
         margin-bottom: 20px;
         font-size: 9pt;
         text-align: center;
       }
 
       .ai-disclaimer strong {
-        color: #856404;
+        color: var(--sumii-primary);
       }
 
       /* Document Header with Logo */
@@ -72,8 +73,17 @@
       }
 
       .logo-section img {
-        height: 60px;
+        height: 80px;
         width: auto;
+      }
+
+      .logo-section .logo-text {
+        font-size: 32pt;
+        font-weight: 700;
+        background: linear-gradient(45deg, #f342ad, #5fc99e 50%, #809ddc 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
       }
 
       .header-text {
@@ -320,10 +330,9 @@
     </style>
   </head>
   <body>
-    <!-- AI Disclaimer Banner -->
+    <!-- AI Disclaimer Banner - Sumii branded -->
     <div class="ai-disclaimer">
-      <strong>⚠️ KI-generierte Analyse</strong> – Diese Dokumentation wurde mit
-      KI-Unterstützung erstellt und muss von einem Rechtsanwalt geprüft werden.
+      <strong>Automatisch erstellt</strong> – Diese Fallzusammenfassung wurde von sumii erstellt und dient der Erstinformation. Eine anwaltliche Prüfung ist erforderlich.
     </div>
 
     <!-- Document Header with Logo -->
@@ -332,19 +341,11 @@
         {% if logo_path %}
         <img src="{{ logo_path }}" alt="Sumii" />
         {% else %}
-        <div
-          style="
-            font-size: 24pt;
-            font-weight: bold;
-            color: var(--sumii-primary);
-          "
-        >
-          sumii
-        </div>
+        <div class="logo-text">sumii</div>
         {% endif %}
       </div>
       <div class="header-text">
-        <div class="header-title">Forensische Anamnese</div>
+        <div class="header-title">Fallzusammenfassung</div>
         <div class="header-subtitle">
           Bahrenfelder Kirchenweg 6h | 22763 Hamburg
         </div>
@@ -566,11 +567,15 @@
       </p>
     </div>
 
-    <!-- Footer -->
+    <!-- Footer with sumii.de links -->
     <div class="footer-info">
-      <p>
-        Erstellt am {{ generation_date | format_german_date }} mit Sumii |
-        Dokument-ID: {{ summary_id | default_if_empty("ENTWURF") }}
+      <p>Erstellt am {{ generation_date | format_german_date }} mit sumii | Dokument-ID: {{ summary_id | default_if_empty("ENTWURF") }}</p>
+      <p style="margin-top: 8px;">
+          <a href="https://sumii.de/datenschutz" style="color: var(--sumii-secondary); text-decoration: none;">Datenschutz</a>
+          &nbsp;·&nbsp;
+          <a href="https://sumii.de/impressum" style="color: var(--sumii-secondary); text-decoration: none;">Impressum</a>
+          &nbsp;·&nbsp;
+          <a href="https://sumii.de/kontakt" style="color: var(--sumii-secondary); text-decoration: none;">Kontakt</a>
       </p>
     </div>
   </body>
