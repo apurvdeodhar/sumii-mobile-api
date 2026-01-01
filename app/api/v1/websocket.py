@@ -146,6 +146,7 @@ async def process_with_agents(
     user_message_content: str,
     agents_service: MistralAgentsService,
     db: AsyncSession,
+    user_language: str = "de",
 ):
     """Process user message with Mistral Agents using Conversations API
 
@@ -158,6 +159,7 @@ async def process_with_agents(
         user_message_content: User's message text
         agents_service: Mistral agents service
         db: Database session
+        user_language: User's preferred language code ("de" or "en")
     """
     try:
         # Initialize Mistral client
@@ -179,6 +181,11 @@ async def process_with_agents(
         # Track current agent for database updates
         current_agent_name = "router"
         full_response_parts: list[str] = []
+
+        # Prepend language instruction to ensure LLM responds in user's language
+        lang_name = "German" if user_language == "de" else "English"
+        language_instruction = f"IMPORTANT: You MUST respond in {lang_name} only.\n\n"
+        user_message_content = language_instruction + user_message_content
 
         # Send agent_start event
         agent_start_payload = {
@@ -520,6 +527,7 @@ async def websocket_chat(
                 user_message_content=augmented_content,
                 agents_service=agents_service,
                 db=db,
+                user_language=user.language or "de",
             )
 
     except WebSocketDisconnect:
