@@ -22,10 +22,10 @@
         size: A4;
         margin: 2cm 2cm 2.5cm 2cm;
         @top-center {
-          content: "sumii · Fallzusammenfassung · Vertraulich";
-          font-size: 8pt;
+          content: "Anwaltliches Arbeitsprodukt | Vertraulich";
+          font-size: 9pt;
           color: var(--sumii-secondary);
-          font-family: 'Inter', 'Helvetica Neue', Arial, sans-serif;
+          font-weight: bold;
         }
         @bottom-center {
           content: "Seite " counter(page) " von " counter(pages);
@@ -345,26 +345,20 @@
         {% endif %}
       </div>
       <div class="header-text">
-        <div class="header-title">Fallzusammenfassung</div>
+        <div class="header-title">Vertraulich</div>
         <div class="header-subtitle">
-          Bahrenfelder Kirchenweg 6h | 22763 Hamburg
+          Forensische Anamnese | Bahrenfelder Kirchenweg 6h | 22763 Hamburg
         </div>
       </div>
     </div>
 
     <!-- Case Title -->
     <div class="case-title">
-      <h1>Fallzusammenfassung</h1>
+      <h1>Forensische Anamnese in Sachen</h1>
       <div class="case-subject">
-        <strong
-          >{{ case_data.claimant.name | default_if_empty("Mandant") }}</strong
-        >
-        {% if case_data.factual_narrative.claimant_goal %} wegen
-        <strong
-          >{{ case_data.factual_narrative.claimant_goal | truncate_words(5)
-          }}</strong
-        >
-        {% endif %}
+        <strong>{{ case_data.claimant.name | default_if_empty("Mandant") }}</strong>
+        wegen
+        <strong>{{ case_data.factual_narrative.claimant_goal | truncate_words(3) | default_if_empty("Rechtlicher Anspruch") }}</strong>
       </div>
     </div>
 
