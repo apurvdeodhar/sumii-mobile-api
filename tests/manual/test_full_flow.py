@@ -38,6 +38,7 @@ import time
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
+from pathlib import Path
 from typing import TypedDict
 
 import httpx
@@ -490,27 +491,44 @@ class TestRunner:
     # =========================================================================
 
     def test_upload_rental_contract(self) -> bool:
-        print_test("Upload Rental Contract (PDF)")
+        print_test("Upload Rental Contract (PDF) with OCR")
         if not self.ctx.conversation_id:
             print_skip("No conversation ID")
             self._record_result("Document: Rental Contract", TestStatus.SKIPPED)
             return True
 
-        # Create a realistic dummy PDF content
-        pdf_content = b"%PDF-1.4\n1 0 obj\n<<\n/Type /Catalog\n/Pages 2 0 R\n>>\nendobj\n"
-        pdf_content += b"2 0 obj\n<<\n/Type /Pages\n/Kids [3 0 R]\n/Count 1\n>>\nendobj\n"
-        pdf_content += b"3 0 obj\n<<\n/Type /Page\n/Parent 2 0 R\n/MediaBox [0 0 612 792]\n>>\nendobj\n"
-        pdf_content += b"trailer\n<<\n/Root 1 0 R\n>>\n%%EOF"
+        # Use real rental contract PDF from testing-docs
+        real_pdf_path = Path(__file__).parent.parent.parent.parent / "docs" / "testing-docs" / "sample-mietvertrag.pdf"
 
-        files = {"file": ("Mietvertrag_2022.pdf", pdf_content, "application/pdf")}
-        data = {"conversation_id": str(self.ctx.conversation_id), "run_ocr": "false"}
+        if not real_pdf_path.exists():
+            print_info(f"Real PDF not found at {real_pdf_path}, using dummy PDF")
+            # Fallback to dummy PDF
+            pdf_content = b"%PDF-1.4\n1 0 obj\n<<\n/Type /Catalog\n/Pages 2 0 R\n>>\nendobj\n"
+            pdf_content += b"2 0 obj\n<<\n/Type /Pages\n/Kids [3 0 R]\n/Count 1\n>>\nendobj\n"
+            pdf_content += b"3 0 obj\n<<\n/Type /Page\n/Parent 2 0 R\n/MediaBox [0 0 612 792]\n>>\nendobj\n"
+            pdf_content += b"trailer\n<<\n/Root 1 0 R\n>>\n%%EOF"
+            files = {"file": ("Mietvertrag_2022.pdf", pdf_content, "application/pdf")}
+        else:
+            print_info(f"Using real PDF: {real_pdf_path.name}")
+            with open(real_pdf_path, "rb") as f:
+                pdf_content = f.read()
+            files = {"file": ("sample-mietvertrag.pdf", pdf_content, "application/pdf")}
+
+        # Enable OCR for real document testing
+        data = {"conversation_id": str(self.ctx.conversation_id), "run_ocr": "true"}
 
         response = self.client.post(f"{API_V1}/documents/", headers=self._auth_headers(), files=files, data=data)
 
         if response.status_code == 201:
             data = response.json()
             self.ctx.document_id = data.get("id")
+            ocr_text = data.get("ocr_text", "")
             print_success(f"Uploaded rental contract: {self.ctx.document_id}")
+            if ocr_text:
+                print_debug(f"OCR extracted {len(ocr_text)} characters", self.ctx.verbose)
+                # Show first 200 chars of OCR text in verbose mode
+                if self.ctx.verbose:
+                    print_debug(f"OCR preview: {ocr_text[:200]}...", True)
             self._record_result("Document: Rental Contract", TestStatus.PASSED)
             return True
         elif response.status_code == 500 and "s3" in response.text.lower():
@@ -523,195 +541,64 @@ class TestRunner:
             return False
 
     def test_upload_evidence_photo(self) -> bool:
-        print_test("Upload Evidence Photo (Thermometer)")
+        print_test("Upload Driver's License (Image) with OCR")
         if not self.ctx.conversation_id:
             print_skip("No conversation ID")
             self._record_result("Document: Evidence Photo", TestStatus.SKIPPED)
             return True
 
-        # Create a minimal valid JPEG file (1x1 pixel white image)
-        jpeg_content = bytes(
-            [
-                0xFF,
-                0xD8,
-                0xFF,
-                0xE0,
-                0x00,
-                0x10,
-                0x4A,
-                0x46,
-                0x49,
-                0x46,
-                0x00,
-                0x01,
-                0x01,
-                0x00,
-                0x00,
-                0x01,
-                0x00,
-                0x01,
-                0x00,
-                0x00,
-                0xFF,
-                0xDB,
-                0x00,
-                0x43,
-                0x00,
-                0x08,
-                0x06,
-                0x06,
-                0x07,
-                0x06,
-                0x05,
-                0x08,
-                0x07,
-                0x07,
-                0x07,
-                0x09,
-                0x09,
-                0x08,
-                0x0A,
-                0x0C,
-                0x14,
-                0x0D,
-                0x0C,
-                0x0B,
-                0x0B,
-                0x0C,
-                0x19,
-                0x12,
-                0x13,
-                0x0F,
-                0x14,
-                0x1D,
-                0x1A,
-                0x1F,
-                0x1E,
-                0x1D,
-                0x1A,
-                0x1C,
-                0x1C,
-                0x20,
-                0x24,
-                0x2E,
-                0x27,
-                0x20,
-                0x22,
-                0x2C,
-                0x23,
-                0x1C,
-                0x1C,
-                0x28,
-                0x37,
-                0x29,
-                0x2C,
-                0x30,
-                0x31,
-                0x34,
-                0x34,
-                0x34,
-                0x1F,
-                0x27,
-                0x39,
-                0x3D,
-                0x38,
-                0x32,
-                0x3C,
-                0x2E,
-                0x33,
-                0x34,
-                0x32,
-                0xFF,
-                0xC0,
-                0x00,
-                0x0B,
-                0x08,
-                0x00,
-                0x01,
-                0x00,
-                0x01,
-                0x01,
-                0x01,
-                0x11,
-                0x00,
-                0xFF,
-                0xC4,
-                0x00,
-                0x1F,
-                0x00,
-                0x00,
-                0x01,
-                0x05,
-                0x01,
-                0x01,
-                0x01,
-                0x01,
-                0x01,
-                0x01,
-                0x00,
-                0x00,
-                0x00,
-                0x00,
-                0x00,
-                0x00,
-                0x00,
-                0x00,
-                0x01,
-                0x02,
-                0x03,
-                0x04,
-                0x05,
-                0x06,
-                0x07,
-                0x08,
-                0x09,
-                0x0A,
-                0x0B,
-                0xFF,
-                0xC4,
-                0x00,
-                0xB5,
-                0x10,
-                0x00,
-                0x02,
-                0x01,
-                0x03,
-                0x03,
-                0x02,
-                0x04,
-                0x03,
-                0x05,
-                0x05,
-                0x04,
-                0x04,
-                0x00,
-                0x00,
-                0x01,
-                0x7D,
-                0xFF,
-                0xDA,
-                0x00,
-                0x08,
-                0x01,
-                0x01,
-                0x00,
-                0x00,
-                0x3F,
-                0x00,
-                0x7F,
-                0xFF,
-                0xD9,
-            ]
-        )
+        # Use real driver's license image from testing-docs
+        real_img_path = Path(__file__).parent.parent.parent.parent / "docs" / "testing-docs" / "DE-drivers-license.jpg"
 
-        files = {"file": ("Thermometer_15Grad.jpg", jpeg_content, "image/jpeg")}
-        data = {"conversation_id": str(self.ctx.conversation_id), "run_ocr": "false"}
+        if not real_img_path.exists():
+            print_info(f"Real image not found at {real_img_path}, using dummy JPEG")
+            # Fallback to minimal JPEG
+            jpeg_content = bytes(
+                [
+                    0xFF,
+                    0xD8,
+                    0xFF,
+                    0xE0,
+                    0x00,
+                    0x10,
+                    0x4A,
+                    0x46,
+                    0x49,
+                    0x46,
+                    0x00,
+                    0x01,
+                    0x01,
+                    0x00,
+                    0x00,
+                    0x01,
+                    0x00,
+                    0x01,
+                    0x00,
+                    0x00,
+                    0xFF,
+                    0xD9,
+                ]
+            )
+            files = {"file": ("test_image.jpg", jpeg_content, "image/jpeg")}
+        else:
+            print_info(f"Using real image: {real_img_path.name}")
+            with open(real_img_path, "rb") as f:
+                img_content = f.read()
+            files = {"file": ("DE-drivers-license.jpg", img_content, "image/jpeg")}
+
+        # Enable OCR for driver's license
+        data = {"conversation_id": str(self.ctx.conversation_id), "run_ocr": "true"}
 
         response = self.client.post(f"{API_V1}/documents/", headers=self._auth_headers(), files=files, data=data)
 
         if response.status_code == 201:
-            data = response.json()
-            print_success(f"Uploaded evidence photo: {data.get('id')}")
+            resp_data = response.json()
+            ocr_text = resp_data.get("ocr_text", "")
+            print_success(f"Uploaded driver's license: {resp_data.get('id')}")
+            if ocr_text:
+                print_debug(f"OCR extracted {len(ocr_text)} characters", self.ctx.verbose)
+                if self.ctx.verbose:
+                    print_debug(f"OCR preview: {ocr_text[:200]}...", True)
             self._record_result("Document: Evidence Photo", TestStatus.PASSED)
             return True
         elif response.status_code == 500:
