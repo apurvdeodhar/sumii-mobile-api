@@ -70,10 +70,21 @@ async def _process_single_event(
         case AgentHandoffDoneEvent():
             # Agent handed off to next agent
             next_agent = getattr(event.data, "next_agent_name", "unknown")
+            # Normalize agent name: lowercase, underscores, remove prefixes
+            next_agent_normalized = next_agent.lower().replace(" ", "_").replace("legal_", "")
             await websocket.send_json(
                 {
                     "type": "agent_handoff",
-                    "agent_name": next_agent,
+                    "fromAgent": current_agent_name,
+                    "toAgent": next_agent_normalized,
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                }
+            )
+            # Also send agent_start for the new agent
+            await websocket.send_json(
+                {
+                    "type": "agent_start",
+                    "agent": next_agent_normalized,
                     "timestamp": datetime.now(timezone.utc).isoformat(),
                 }
             )
