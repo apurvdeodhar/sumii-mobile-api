@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Fallzusammenfassung - {{ case_data.claimant.name | default_if_empty("Mandant") }}</title>
+    <title>Fallzusammenfassung - {% if is_lawyer_view %}{{ summary_id | default_if_empty("Mandant") }}{% else %}{{ case_data.claimant.name | default_if_empty("Mandant") }}{% endif %}</title>
     <style>
       /* Sumii Urban Color Palette - Professional & Clean */
       :root {
@@ -356,7 +356,7 @@
     <div class="case-title">
       <h1>Forensische Anamnese in Sachen</h1>
       <div class="case-subject">
-        <strong>{{ case_data.claimant.name | default_if_empty("Mandant") }}</strong>
+        <strong>{% if is_lawyer_view %}Sumii-Mandant {{ summary_id | default_if_empty("XXXXXX") }}{% else %}{{ case_data.claimant.name | default_if_empty("Mandant") }}{% endif %}</strong>
         wegen
         <strong>{{ case_data.factual_narrative.claimant_goal | truncate_words(3) | default_if_empty("Rechtlicher Anspruch") }}</strong>
       </div>
@@ -383,7 +383,11 @@
         <tr>
           <td class="label">Name:</td>
           <td class="value">
-            {{ case_data.claimant.name | default_if_empty("Nicht angegeben") }}
+            {% if is_lawyer_view %}
+              Sumii-Mandant {{ summary_id | default_if_empty("XXXXXX") }}
+            {% else %}
+              {{ case_data.claimant.name | default_if_empty("Nicht angegeben") }}
+            {% endif %}
           </td>
         </tr>
         {% if case_data.claimant.role %}
@@ -399,18 +403,21 @@
             angegeben") }}
           </td>
         </tr>
-        {% if case_data.claimant.insurance_company and
-        case_data.claimant.insurance_company != "k. A." %}
-        <tr>
-          <td class="label">Versicherungsgesellschaft:</td>
-          <td class="value">{{ case_data.claimant.insurance_company }}</td>
-        </tr>
-        {% endif %} {% if case_data.claimant.insurance_number and
-        case_data.claimant.insurance_number != "k. A." %}
-        <tr>
-          <td class="label">Versicherungsnummer:</td>
-          <td class="value">{{ case_data.claimant.insurance_number }}</td>
-        </tr>
+        {% if not is_lawyer_view %}
+          {% if case_data.claimant.insurance_company and
+          case_data.claimant.insurance_company != "k. A." %}
+          <tr>
+            <td class="label">Versicherungsgesellschaft:</td>
+            <td class="value">{{ case_data.claimant.insurance_company }}</td>
+          </tr>
+          {% endif %}
+          {% if case_data.claimant.insurance_number and
+          case_data.claimant.insurance_number != "k. A." %}
+          <tr>
+            <td class="label">Versicherungsnummer:</td>
+            <td class="value">{{ case_data.claimant.insurance_number }}</td>
+          </tr>
+          {% endif %}
         {% endif %}
       </table>
     </div>

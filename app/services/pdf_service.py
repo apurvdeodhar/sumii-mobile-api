@@ -195,6 +195,7 @@ class PDFService:
         case_data: dict,
         summary_id: str | None = None,
         template_name: str = "legal_case_report.html",
+        is_lawyer_view: bool = False,
     ) -> bytes:
         """Render Jinja2 template with case data and convert to PDF
 
@@ -209,6 +210,7 @@ class PDFService:
                 - financial_info: dict with claim_value_eur
             summary_id: Summary UUID for reference number
             template_name: Name of template file (default: legal_case_report.html)
+            is_lawyer_view: If True, anonymizes user personal data (name, contact)
 
         Returns:
             bytes: PDF file content
@@ -234,6 +236,7 @@ class PDFService:
                 "template_version": "2.0",
                 "language": "de",
                 "logo_path": logo_url,
+                "is_lawyer_view": is_lawyer_view,
             }
 
             # Render template to HTML
@@ -244,7 +247,7 @@ class PDFService:
             html_doc = HTML(string=html_content)
             pdf_bytes = html_doc.write_pdf(font_config=font_config)
 
-            logger.info(f"Generated PDF from template: {len(pdf_bytes)} bytes")
+            logger.info(f"Generated PDF from template: {len(pdf_bytes)} bytes (lawyer_view={is_lawyer_view})")
             return pdf_bytes
 
         except Exception as e:

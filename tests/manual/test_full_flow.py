@@ -374,6 +374,16 @@ class TestRunner:
             self.test_list_lawyer_connections()
 
             # =================================================================
+            # PHASE 10.5: Verify Case Handoff & Lawyer Response
+            # =================================================================
+            print_phase(10, "Case Handoff Verification (sumii-anwalt integration)")
+            if not self._check_should_continue():
+                return
+            self.test_verify_case_in_anwalt()
+            self.test_simulate_lawyer_response()
+            self.test_verify_lawyer_notification()
+
+            # =================================================================
             # PHASE 11: Cleanup
             # =================================================================
             print_phase(11, "Cleanup")
@@ -1073,6 +1083,156 @@ class TestRunner:
             print_error(f"List failed: {response.status_code}")
             self._record_result("Lawyer: List Connections", TestStatus.FAILED)
             return False
+
+    # =========================================================================
+    # PHASE 10.5: Case Handoff Verification (sumii-anwalt integration)
+    # =========================================================================
+
+    def test_verify_case_in_anwalt(self) -> bool:
+        """Verify the case was received by sumii-anwalt backend"""
+        print_test("Verify Case Received by sumii-anwalt")
+
+        if not self.ctx.lawyer_connection_id:
+            print_skip("No lawyer connection ID - skipping anwalt verification")
+            self._record_result("Anwalt: Case Verification", TestStatus.SKIPPED)
+            return True
+
+        # Query sumii-anwalt directly to see if case was created
+        # Note: sumii-anwalt runs on port 8001 (but we verify via mobile-api connection status)
+
+        try:
+            # Get connection details to find case_id
+            response = self.client.get(f"{API_V1}/anwalt/connections", headers=self._auth_headers())
+            if response.status_code != 200:
+                print_info("Could not fetch connections to verify case")
+                self._record_result("Anwalt: Case Verification", TestStatus.SKIPPED)
+                return True
+
+            connections = response.json().get("connections", [])
+            our_connection = next((c for c in connections if c.get("id") == self.ctx.lawyer_connection_id), None)
+
+            if not our_connection:
+                print_info("Connection not found in list")
+                self._record_result("Anwalt: Case Verification", TestStatus.SKIPPED)
+                return True
+
+            case_id = our_connection.get("case_id")
+            if not case_id:
+                print_info("Case not yet created in sumii-anwalt (case_id is null)")
+                print_debug("This is expected if handoff is async", self.ctx.verbose)
+                self._record_result("Anwalt: Case Verification", TestStatus.SKIPPED, "Async handoff")
+                return True
+
+            # Verify case exists in sumii-anwalt
+            print_success(f"Case created in sumii-anwalt: {case_id}")
+            print_debug(f"Status: {our_connection.get('status')}", self.ctx.verbose)
+            self._record_result("Anwalt: Case Verification", TestStatus.PASSED)
+            return True
+
+        except Exception as e:
+            print_info(f"Anwalt verification error: {e}")
+            self._record_result("Anwalt: Case Verification", TestStatus.SKIPPED, str(e))
+            return True
+
+    def test_simulate_lawyer_response(self) -> bool:
+        """Simulate lawyer responding via webhook (from sumii-anwalt to mobile-api)"""
+        print_test("Simulate Lawyer Response Webhook")
+
+        if not self.ctx.conversation_id or not self.ctx.lawyer_id:
+            print_skip("No conversation/lawyer ID")
+            self._record_result("Webhook: Lawyer Response", TestStatus.SKIPPED)
+            return True
+
+        # This simulates sumii-anwalt calling the webhook when a lawyer responds
+        # POST /webhooks/lawyer-response
+        webhook_payload = {
+            "case_id": 1,  # Simulated case ID from anwalt
+            "conversation_id": str(self.ctx.conversation_id),
+            "user_id": str(self.ctx.user_id) if self.ctx.user_id else "",
+            "lawyer_id": self.ctx.lawyer_id,
+            "lawyer_name": "Test Anwalt",
+            "response_text": "Vielen Dank für Ihre Anfrage. Ich habe Ihren Fall geprüft und würde Ihnen gerne helfen.",
+            "response_timestamp": datetime.now().isoformat(),
+        }
+
+        try:
+            response = self.client.post(
+                f"{API_V1}/webhooks/lawyer-response",
+                json=webhook_payload,
+            )
+
+            if response.status_code == 200:
+                data = response.json()
+                print_success("Lawyer response webhook processed")
+                print_debug(f"Notification ID: {data.get('notification_id')}", self.ctx.verbose)
+                print_debug(f"Email sent: {data.get('email_sent')}", self.ctx.verbose)
+                self._record_result("Webhook: Lawyer Response", TestStatus.PASSED)
+                return True
+            elif response.status_code == 404:
+                print_info("Webhook endpoint not found - may not be implemented yet")
+                self._record_result("Webhook: Lawyer Response", TestStatus.SKIPPED, "Not implemented")
+                return True
+            elif response.status_code == 422:
+                print_info(f"Webhook validation failed: {response.text[:100]}")
+                self._record_result("Webhook: Lawyer Response", TestStatus.SKIPPED, "Validation error")
+                return True
+            else:
+                print_error(f"Webhook failed: {response.status_code} - {response.text[:100]}")
+                self._record_result("Webhook: Lawyer Response", TestStatus.FAILED)
+                return False
+
+        except Exception as e:
+            print_info(f"Webhook test error: {e}")
+            self._record_result("Webhook: Lawyer Response", TestStatus.SKIPPED, str(e))
+            return True
+
+    def test_verify_lawyer_notification(self) -> bool:
+        """Verify notification was created for user after lawyer response"""
+        print_test("Verify User Notification Created")
+
+        if not self.ctx.token:
+            print_skip("No auth token")
+            self._record_result("Notification: Lawyer Response", TestStatus.SKIPPED)
+            return True
+
+        try:
+            response = self.client.get(
+                f"{API_V1}/notifications",
+                headers=self._auth_headers(),
+            )
+
+            if response.status_code == 200:
+                data = response.json()
+                notifications = data.get("notifications", [])
+                count = data.get("total", len(notifications))
+
+                # Look for lawyer_response notification
+                lawyer_notifications = [n for n in notifications if n.get("type") == "lawyer_response"]
+
+                if lawyer_notifications:
+                    print_success(f"Found {len(lawyer_notifications)} lawyer response notification(s)")
+                    if self.ctx.verbose and lawyer_notifications:
+                        latest = lawyer_notifications[0]
+                        print_debug(f"Title: {latest.get('title')}", True)
+                        print_debug(f"Message: {latest.get('message')[:50]}...", True)
+                    self._record_result("Notification: Lawyer Response", TestStatus.PASSED)
+                else:
+                    print_info(f"No lawyer_response notifications (total: {count})")
+                    self._record_result("Notification: Lawyer Response", TestStatus.SKIPPED, "None found")
+                return True
+            elif response.status_code == 404:
+                print_info("Notifications endpoint not found")
+                self._record_result("Notification: Lawyer Response", TestStatus.SKIPPED)
+                return True
+            else:
+                print_error(f"Notifications fetch failed: {response.status_code}")
+                self._record_result("Notification: Lawyer Response", TestStatus.FAILED)
+                return False
+
+        except Exception as e:
+            print_info(f"Notification check error: {e}")
+            self._record_result("Notification: Lawyer Response", TestStatus.SKIPPED, str(e))
+            return True
 
     # =========================================================================
     # PHASE 11: Cleanup

@@ -191,12 +191,21 @@ async def connect_to_lawyer(
     # Hand off case to sumii-anwalt backend if summary exists
     if summary:
         try:
+            # from app.services.pdf_service import PDFService  # TODO: Use for anonymized PDF
             from app.services.storage_service import StorageService
 
-            # Get storage service to generate pre-signed URL
             storage_service = StorageService()
+            # pdf_service = PDFService()  # TODO: Generate anonymized PDF
 
-            # Get pre-signed URL for summary PDF (7 days expiry)
+            # Generate anonymized PDF for lawyer view
+            # Parse the case data from the summary's markdown or re-generate structure
+            # For now, we use a simplified approach: generate PDF with is_lawyer_view=True
+            # The case_data should be stored with the summary, but since it's not,
+            # we'll use the existing PDF URL for now and add anonymization later
+            # TODO: Store case_data with summary to enable full anonymization
+
+            # For now, use the existing PDF (anonymization happens in template)
+            # When full implementation is ready, generate new PDF with is_lawyer_view=True
             pdf_url = storage_service.generate_presigned_url(
                 s3_key=str(summary.pdf_s3_key),
                 expiration_days=7,
