@@ -50,6 +50,10 @@ class ConversationResponse(BaseModel):
     current_agent: str | None
     created_at: datetime
     updated_at: datetime
+    # Wrap-up confirmation fields
+    wrapup_confirmed: bool = False
+    wrapup_content: str | None = None
+    wrapup_confirmed_at: datetime | None = None
 
     model_config = {"from_attributes": True}
 
