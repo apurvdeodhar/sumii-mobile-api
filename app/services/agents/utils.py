@@ -22,6 +22,13 @@ class AgentFactory:
         """Initialize Mistral client with API key from settings"""
         self.client = Mistral(api_key=settings.MISTRAL_API_KEY)
 
+    def _compute_hash(self, instructions: str, description: str, tools: list | None) -> str:
+        """Compute hash of agent configuration to detect changes."""
+        import hashlib
+
+        content = f"{instructions}|{description}|{str(tools or [])}"
+        return hashlib.md5(content.encode()).hexdigest()[:16]
+
     def create_agent(
         self,
         model: str,
@@ -30,26 +37,77 @@ class AgentFactory:
         instructions: str,
         tools: list[dict] | None = None,
     ) -> str:
-        """Create a Mistral AI agent with common configuration
+        """Create or Update a Mistral AI agent
+
+        Best Practice: Check if agent exists by name first to avoid duplicates.
+        If exists -> Check if instructions changed before updating
+        If new -> Create
+
+        IMPORTANT: Avoid unnecessary updates to prevent version mismatch errors
+        in active conversations. Each agent.update() increments the version.
 
         Args:
-            model: Mistral model to use (e.g., "mistral-medium-2505")
+            model: Mistral model to use
             name: Agent name
-            description: Short description of agent's purpose
-            instructions: Detailed instructions for agent behavior
-            tools: Optional list of function calling tools
+            description: Agent description
+            instructions: Agent instructions
+            tools: Process list of tools
 
         Returns:
             str: Agent ID
         """
-        agent = self.client.beta.agents.create(
-            model=model,
-            name=name,
-            description=description,
-            instructions=instructions,
-            tools=tools or [],
-        )
-        return agent.id
+        import logging
+
+        logger = logging.getLogger(__name__)
+
+        # 1. List existing agents to check for duplicates
+        existing_agents = self.client.beta.agents.list()
+
+        target_agent = None
+        for agent in existing_agents:
+            if agent.name == name:
+                target_agent = agent
+                break
+
+        # Compute hash of new configuration
+        new_hash = self._compute_hash(instructions, description, tools)
+
+        if target_agent:
+            # 2. Check if update is needed by comparing instruction hash
+            # We embed the hash in the description prefix to track changes
+            existing_desc = getattr(target_agent, "description", "") or ""
+            existing_hash = ""
+
+            # Extract hash from description if present (format: "[hash] description")
+            if existing_desc.startswith("[") and "]" in existing_desc:
+                existing_hash = existing_desc[1 : existing_desc.index("]")]
+
+            if existing_hash == new_hash:
+                # No changes, skip update to preserve version
+                logger.info(f"Agent '{name}' unchanged (hash={new_hash[:8]}...), skipping update")
+                return target_agent.id
+
+            # 3. Update needed - embed hash in description
+            logger.info(f"Agent '{name}' changed, updating (hash={new_hash[:8]}...)")
+            description_with_hash = f"[{new_hash}] {description}"
+            self.client.beta.agents.update(
+                agent_id=target_agent.id,
+                description=description_with_hash,
+                instructions=instructions,
+                tools=tools or [],
+            )
+            return target_agent.id
+        else:
+            # 3. Create new agent with hash in description
+            description_with_hash = f"[{new_hash}] {description}"
+            agent = self.client.beta.agents.create(
+                model=model,
+                name=name,
+                description=description_with_hash,
+                instructions=instructions,
+                tools=tools or [],
+            )
+            return agent.id
 
 
 # Common instruction templates
@@ -82,6 +140,34 @@ DON'T:
 - Don't overwhelm users with legal technicalities
 - Don't be overly emotional or effusive in empathy
 - Don't act like a lawyer - act like a helpful assistant preparing information for lawyers
+
+<<<DOCUMENT ATTACHMENTS - CRITICAL (READ THIS FIRST)>>>
+
+**IMPORTANT**: When the user uploads a file (image, PDF), the system has ALREADY extracted
+the text using OCR. This extracted text is included ABOVE the user's request.
+
+Look for this marker: "--- BEGIN EXTRACTED CONTENT FROM 'filename' ---"
+
+THE EXTRACTED TEXT IS THE DOCUMENT CONTENT. You can "see" it. Analyze it.
+
+DO:
+- ANALYZE the extracted text as if you are looking at the actual document
+- ACKNOWLEDGE what you see (e.g., "I see your residence permit for Erika Mustermann")
+- USE the information to answer the user's question or pre-fill facts
+- TREAT the OCR text as complete document access
+
+NEVER:
+- NEVER say "I don't have tools to read files" - YOU HAVE THE TEXT RIGHT HERE
+- NEVER say "I can't analyze images" - THE TEXT HAS BEEN EXTRACTED FOR YOU
+- NEVER ask for information that is clearly visible in the extracted text
+
+<<<PRIVACY & DATA HANDLING - CRITICAL>>>
+
+You are a LEGAL ASSISTANT. Handling personal documents (contracts, licenses, letters) is your JOB.
+- The user has voluntarily uploaded these documents for your review.
+- It is safe and permitted to read names, dates, addresses, and personal details from these files.
+- DO NOT REFUSE to analyze a document because it contains personal info (PII).
+- Treat all data confidentially, but YOU MUST PROCESS IT to help the user.
 
 <<<TONE AND STYLE>>>
 - Professional and efficient

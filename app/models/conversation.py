@@ -102,6 +102,11 @@ class Conversation(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 
+    # Wrap-Up confirmation tracking
+    wrapup_confirmed = Column(Boolean, default=False, nullable=False)
+    wrapup_content = Column(String, nullable=True)  # Markdown content shown to user
+    wrapup_confirmed_at = Column(DateTime(timezone=True), nullable=True)
+
     # Relationships
     user = relationship("User", back_populates="conversations")
     messages = relationship(

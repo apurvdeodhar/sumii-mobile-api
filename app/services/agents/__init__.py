@@ -4,6 +4,7 @@ This package provides specialized AI agents for Sumii's legal intake process:
 - Router Agent: Orchestrates workflow
 - Intake Agent: Collects facts (5W framework)
 - Fact Completion Agent: Gathers additional details
+- Wrap-Up Agent: Confirms facts before summary generation
 - Summary Agent: Generates professional documents for lawyers
 
 Architecture: Mistral Agents API (cloud-hosted)
@@ -13,18 +14,20 @@ IMPORTANT: Sumii does NOT provide legal analysis or advice.
 Legal analysis is done by lawyers. Sumii only collects facts.
 
 Agent Flow:
-User → Router → Intake → Fact Completion → Summary → PDF Download
+User → Router → Intake → Fact Completion → Wrap-Up → Summary → PDF Download
 """
 
 from app.services.agents.intake import create_intake_agent
 from app.services.agents.reasoning import create_reasoning_agent
 from app.services.agents.router import create_router_agent
 from app.services.agents.summary import create_summary_agent
+from app.services.agents.wrapup import create_wrapup_agent
 
 __all__ = [
     "create_router_agent",
     "create_intake_agent",
     "create_reasoning_agent",
+    "create_wrapup_agent",
     "create_summary_agent",
     "MistralAgentsService",
 ]
@@ -34,7 +37,7 @@ class MistralAgentsService:
     """Service for managing all Mistral AI Agents
 
     This service provides a convenient interface to create and manage
-    all 4 specialized agents for the legal intake workflow.
+    all 5 specialized agents for the legal intake workflow.
     """
 
     def __init__(self):
@@ -42,10 +45,12 @@ class MistralAgentsService:
         self.agents: dict[str, str] = {}
 
     async def initialize_all_agents(self) -> dict[str, str]:
-        """Create all 4 agents and configure handoffs via Mistral API
+        """Create all 5 agents and configure handoffs via Mistral API
 
         The agent workflow is:
-        Router → Intake → Reasoning → Summary
+        Router → Intake → Reasoning → Wrap-Up → Summary
+                                         ↓
+                          (corrections) → Reasoning
 
         Handoffs are configured via client.beta.agents.update() to enable
         proper agent orchestration with Mistral's Conversations API.
@@ -63,6 +68,7 @@ class MistralAgentsService:
         # Create all agents
         intake_id = create_intake_agent()
         reasoning_id = create_reasoning_agent()
+        wrapup_id = create_wrapup_agent()
         summary_id = create_summary_agent()
         router_id = create_router_agent()
 
@@ -73,8 +79,11 @@ class MistralAgentsService:
         # Intake can hand off to Reasoning
         client.beta.agents.update(agent_id=intake_id, handoffs=[reasoning_id])
 
-        # Reasoning can hand off to Summary
-        client.beta.agents.update(agent_id=reasoning_id, handoffs=[summary_id])
+        # Reasoning can hand off to Wrap-Up (no longer directly to Summary)
+        client.beta.agents.update(agent_id=reasoning_id, handoffs=[wrapup_id])
+
+        # Wrap-Up can hand off to Summary (on confirmation) or back to Reasoning (on correction)
+        client.beta.agents.update(agent_id=wrapup_id, handoffs=[summary_id, reasoning_id])
 
         # Summary is final - no handoffs needed
 
@@ -83,6 +92,7 @@ class MistralAgentsService:
             "router": router_id,
             "intake": intake_id,
             "reasoning": reasoning_id,
+            "wrapup": wrapup_id,
             "summary": summary_id,
         }
 
@@ -92,12 +102,29 @@ class MistralAgentsService:
         """Get agent ID by name
 
         Args:
-            agent_name: Name of agent ("router", "intake", "reasoning", "summary")
+            agent_name: Name of agent ("router", "intake", "reasoning", "wrapup", "summary")
 
         Returns:
             str | None: Agent ID if exists, None otherwise
         """
         return self.agents.get(agent_name)
+
+    @property
+    def is_initialized(self) -> bool:
+        """Check if all agents are initialized"""
+        return len(self.agents) == 5
+
+    def status(self) -> dict:
+        """Get agent initialization status for health checks
+
+        Returns:
+            dict: Status information including initialized flag and agent count
+        """
+        return {
+            "initialized": self.is_initialized,
+            "agent_count": len(self.agents),
+            "agents": list(self.agents.keys()) if self.agents else [],
+        }
 
 
 # Global service instance

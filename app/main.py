@@ -3,6 +3,8 @@ Sumii Mobile API - FastAPI Application
 Backend for Sumii Mobile App (User-Facing)
 """
 
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -19,10 +21,31 @@ from app.api.v1 import (
     webhooks,
     websocket,
 )
+from app.services.agents import get_mistral_agents_service
 from app.utils.logging_config import setup_logging
 
 # Configure logging from environment variables (one-time setup)
 setup_logging()
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Application lifespan - startup and shutdown events"""
+    # Startup: Initialize Mistral agents eagerly
+    print("🤖 Initializing Mistral agents...")
+    agents_service = get_mistral_agents_service()
+    try:
+        agents = await agents_service.initialize_all_agents()
+        print(f"✅ Mistral agents initialized: {list(agents.keys())}")
+    except Exception as e:
+        print(f"⚠️ Failed to initialize agents: {e}")
+        # Continue anyway - agents will be initialized lazily on first request
+
+    yield
+
+    # Shutdown: cleanup if needed
+    print("👋 Shutting down Sumii Mobile API...")
+
 
 app = FastAPI(
     title="Sumii Mobile API",
@@ -31,6 +54,7 @@ app = FastAPI(
         "Backend API for Sumii Mobile App - "
         "Intelligent lawyer assistant for empathetic fact-gathering and lawyer connections"
     ),
+    lifespan=lifespan,
 )
 
 # CORS for mobile app (MVP - allow all origins)
@@ -45,11 +69,15 @@ app.add_middleware(
 
 @app.get("/health")
 async def health_check():
-    """Health check endpoint"""
+    """Health check endpoint with agent status"""
+    agents_service = get_mistral_agents_service()
+    agent_status = agents_service.status()
+
     return {
-        "status": "healthy",
+        "status": "healthy" if agent_status["initialized"] else "degraded",
         "version": "0.1.0",
         "service": "sumii-mobile-api",
+        "agents": agent_status,
     }
 
 

@@ -139,6 +139,16 @@ SUMMARY_GENERATION_SCHEMA = {
                     "type": "string",
                     "description": "Complete markdown summary with all structured sections for mobile display",
                 },
+                # Client profile information (Mandant)
+                "client_profile": {
+                    "type": "object",
+                    "description": "Mandant (client) information from user profile",
+                    "properties": {
+                        "name": {"type": "string", "description": "Full name of the client"},
+                        "address": {"type": "string", "description": "Client address if available"},
+                        "contact": {"type": "string", "description": "Email or phone contact"},
+                    },
+                },
                 # Structured data for PDF template
                 "claimant": {
                     "type": "object",
@@ -192,12 +202,30 @@ SUMMARY_GENERATION_SCHEMA = {
                 },
                 "evidence": {
                     "type": "object",
-                    "description": "Beweisverzeichnis - evidence index",
+                    "description": "Beweisverzeichnis - evidence index with OCR-extracted data",
                     "properties": {
                         "evidence_items": {
                             "type": "array",
-                            "items": {"type": "string"},
-                            "description": "Numbered list of evidence items (e.g., 'Mietvertrag vom 01.01.2023')",
+                            "description": "List of evidence items with OCR-extracted key data",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "anlage_number": {
+                                        "type": "string",
+                                        "description": "Anlage number (e.g., 'Anlage 1')",
+                                    },
+                                    "document_type": {
+                                        "type": "string",
+                                        "description": "Type of document (e.g., 'Mietvertrag', 'Führerschein')",
+                                    },
+                                    "document_date": {"type": "string", "description": "Date of document if available"},
+                                    "ocr_extracted_data": {
+                                        "type": "array",
+                                        "items": {"type": "string"},
+                                        "description": "Key OCR data (e.g., 'Kaltmiete: 850 EUR')",
+                                    },
+                                },
+                            },
                         },
                     },
                 },

@@ -29,7 +29,7 @@ ALLOWED_MIME_TYPES = {
 async def upload_document(
     file: UploadFile = File(...),
     conversation_id: UUID = Form(...),
-    run_ocr: bool = Form(False),
+    run_ocr: bool = Form(True),
     current_user: User = Depends(current_active_user),
     db: AsyncSession = Depends(get_db),
     storage_service: StorageService = Depends(get_storage_service),
@@ -91,7 +91,7 @@ async def upload_document(
         s3_key="",  # Will be set after upload
         s3_url="",  # Will be set after upload
         upload_status=UploadStatus.UPLOADING,
-        ocr_status=OCRStatus.PENDING if run_ocr else OCRStatus.COMPLETED,  # Skip OCR if not requested
+        ocr_status=OCRStatus.PENDING if run_ocr else OCRStatus.COMPLETED,
     )
 
     db.add(document)
@@ -113,11 +113,28 @@ async def upload_document(
         document.s3_url = s3_url
         document.upload_status = UploadStatus.COMPLETED
 
+        # Run OCR if requested
+        if run_ocr:
+            from app.services.ocr_service import get_ocr_service
+
+            ocr_service = get_ocr_service()
+            document.ocr_status = OCRStatus.PROCESSING
+
+            try:
+                ocr_text = await ocr_service.extract_text_from_bytes(
+                    file_content=file_content,
+                    file_type=file_type,
+                    filename=document.filename,
+                )
+                document.ocr_text = ocr_text
+                document.ocr_status = OCRStatus.COMPLETED
+            except Exception as ocr_error:
+                # Log OCR error but don't fail the upload
+                print(f"OCR failed for document {document.id}: {ocr_error}")
+                document.ocr_status = OCRStatus.FAILED
+
         await db.commit()
         await db.refresh(document)
-
-        # TODO 5B.3: Trigger OCR processing if run_ocr=True
-        # For now, just set status to PENDING
 
         return document
 

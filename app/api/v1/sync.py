@@ -16,12 +16,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
 from app.models.conversation import Conversation
 from app.models.document import Document
+from app.models.lawyer_connection import LawyerConnection
 from app.models.message import Message
 from app.models.notification import Notification
 from app.models.summary import Summary
 from app.models.user import User
 from app.schemas.conversation import ConversationResponse, MessageResponse
 from app.schemas.document import DocumentResponse
+from app.schemas.lawyer_connection import LawyerConnectionResponse
 from app.schemas.notification import NotificationResponse
 from app.schemas.summary import SummaryResponse
 from app.schemas.sync import DeletedIds, SyncRequest, SyncResponse
@@ -44,7 +46,7 @@ async def sync_data(
     """Synchronize data for mobile client
 
     - **last_synced_at**: Timestamp of last successful sync (None for full sync)
-    - Returns all conversations, messages, documents, summaries, notifications
+    - Returns all conversations, messages, documents, summaries, notifications, lawyer_connections
       that have been created or updated since last_synced_at
     - Returns server_time to use as last_synced_at for next sync
     """
@@ -125,6 +127,19 @@ async def sync_data(
     )
     notifications = list(notifications_result.scalars().all())
 
+    # Query lawyer connections updated since last sync
+    lawyer_connections_result = await db.execute(
+        select(LawyerConnection)
+        .where(
+            and_(
+                LawyerConnection.user_id == current_user.id,
+                LawyerConnection.updated_at > last_synced_at,
+            )
+        )
+        .order_by(LawyerConnection.updated_at.desc())
+    )
+    lawyer_connections = list(lawyer_connections_result.scalars().all())
+
     # TODO: Query deleted records (requires soft delete implementation)
     deleted_ids = DeletedIds()
 
@@ -134,6 +149,7 @@ async def sync_data(
         documents=[DocumentResponse.model_validate(d) for d in documents],
         summaries=[SummaryResponse.model_validate(s) for s in summaries],
         notifications=[NotificationResponse.model_validate(n) for n in notifications],
+        lawyer_connections=[LawyerConnectionResponse.model_validate(lc) for lc in lawyer_connections],
         deleted_ids=deleted_ids,
         server_time=server_time,
         is_full_sync=is_full_sync,

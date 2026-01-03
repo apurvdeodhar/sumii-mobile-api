@@ -8,7 +8,7 @@ from enum import Enum as PyEnum
 from uuid import uuid4
 
 from sqlalchemy import UUID, Column, DateTime, Enum, ForeignKey, Index, String, Text, func
-from sqlalchemy.dialects.postgresql import JSON
+from sqlalchemy.dialects.postgresql import ARRAY, JSON
 from sqlalchemy.orm import relationship
 
 from app.database import Base
@@ -32,6 +32,7 @@ class Message(Base):
         content: Message text content
         agent_name: Which agent sent this message (null if role=user)
         function_call: JSON data for function calls (null if no function call)
+        document_ids: Array of document UUIDs attached to this message
         created_at: When message was created
     """
 
@@ -58,6 +59,11 @@ class Message(Base):
     function_call = Column(
         JSON, nullable=True
     )  # {"name": "extract_facts", "arguments": {...}} or null if no function call
+
+    # Attached documents (array of document UUIDs)
+    document_ids = Column(
+        ARRAY(UUID(as_uuid=True)), nullable=True, default=[]
+    )  # Documents attached to this message (for user uploads)
 
     # Timestamp
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)

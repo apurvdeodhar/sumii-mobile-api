@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 
 from app.schemas.conversation import ConversationResponse, MessageResponse
 from app.schemas.document import DocumentResponse
+from app.schemas.lawyer_connection import LawyerConnectionResponse
 from app.schemas.notification import NotificationResponse
 from app.schemas.summary import SummaryResponse
 
@@ -25,6 +26,7 @@ class DeletedIds(BaseModel):
     documents: list[UUID] = []
     summaries: list[UUID] = []
     notifications: list[UUID] = []
+    lawyer_connections: list[UUID] = []
 
 
 class SyncResponse(BaseModel):
@@ -36,6 +38,7 @@ class SyncResponse(BaseModel):
     documents: list[DocumentResponse] = []
     summaries: list[SummaryResponse] = []
     notifications: list[NotificationResponse] = []
+    lawyer_connections: list[LawyerConnectionResponse] = []
 
     # Deleted record IDs
     deleted_ids: DeletedIds = Field(default_factory=DeletedIds)
