@@ -9,7 +9,9 @@ flowchart LR
     User[User Message] --> Router[Router Agent]
     Router --> Intake[Intake Agent]
     Intake --> |"5W facts complete"| Reasoning[Reasoning Agent]
-    Reasoning --> |"analysis complete"| Summary[Summary Agent]
+    Reasoning --> |"facts collected"| WrapUp[Wrap-Up Agent]
+    WrapUp --> |"user confirms"| Summary[Summary Agent]
+    WrapUp --> |"user corrects"| Reasoning
     Summary --> User
 ```
 
@@ -19,7 +21,8 @@ flowchart LR
 |-------|---------|-------|
 | **Router** | Silent routing to specialist agents | mistral-medium-2505 |
 | **Intake** | Collect facts using 5W framework (Who, What, When, Where, Why) | mistral-medium-2505 |
-| **Reasoning** | Legal analysis based on collected facts | mistral-medium-2505 |
+| **Reasoning** | Additional fact gathering based on collected facts | mistral-medium-2505 |
+| **Wrap-Up** | Present structured summary for user confirmation before summary | mistral-medium-2505 |
 | **Summary** | Generate user-friendly summary | mistral-medium-2505 |
 
 ## Key Files
@@ -31,6 +34,7 @@ flowchart LR
 | `router.py` | Router agent creation |
 | `intake.py` | Intake agent creation + 5W tools |
 | `reasoning.py` | Reasoning agent creation |
+| `wrapup.py` | Wrap-Up agent - confirms facts before summary |
 | `summary.py` | Summary agent creation |
 
 ## How Agents Are Created (Upsert Pattern)
@@ -122,6 +126,15 @@ You are a LEGAL ASSISTANT. Handling personal documents is your JOB.
 - `start_stream` creates new conversation
 - `append_stream` adds to existing conversation
 - History persists across sessions (linked by `conversation_id`)
+
+### 5. Agent Updates Cause Version Mismatch (Fixed)
+**Problem**: HTTP 404 errors after container restart: `"Agent does not have a version X"`
+**Cause**: Each `agent.update()` increments the agent version. Existing conversations reference old versions.
+**Solution**: Hash-based change detection in `utils.py`:
+- Compute MD5 hash of instructions + description + tools
+- Embed hash in agent description: `[hash] description`
+- Skip updates when hash matches (no changes)
+- Logs: `"Agent 'X' unchanged (hash=...), skipping update"`
 
 ## Configuration
 

@@ -22,6 +22,13 @@ class AgentFactory:
         """Initialize Mistral client with API key from settings"""
         self.client = Mistral(api_key=settings.MISTRAL_API_KEY)
 
+    def _compute_hash(self, instructions: str, description: str, tools: list | None) -> str:
+        """Compute hash of agent configuration to detect changes."""
+        import hashlib
+
+        content = f"{instructions}|{description}|{str(tools or [])}"
+        return hashlib.md5(content.encode()).hexdigest()[:16]
+
     def create_agent(
         self,
         model: str,
@@ -33,8 +40,11 @@ class AgentFactory:
         """Create or Update a Mistral AI agent
 
         Best Practice: Check if agent exists by name first to avoid duplicates.
-        If exists -> Update instructions/tools
+        If exists -> Check if instructions changed before updating
         If new -> Create
+
+        IMPORTANT: Avoid unnecessary updates to prevent version mismatch errors
+        in active conversations. Each agent.update() increments the version.
 
         Args:
             model: Mistral model to use
@@ -46,9 +56,11 @@ class AgentFactory:
         Returns:
             str: Agent ID
         """
+        import logging
+
+        logger = logging.getLogger(__name__)
+
         # 1. List existing agents to check for duplicates
-        # Note: Pagination might be needed if you have > 100 agents,
-        # but for this app we have < 10.
         existing_agents = self.client.beta.agents.list()
 
         target_agent = None
@@ -57,23 +69,41 @@ class AgentFactory:
                 target_agent = agent
                 break
 
+        # Compute hash of new configuration
+        new_hash = self._compute_hash(instructions, description, tools)
+
         if target_agent:
-            # 2. Update existing agent
-            # This ensures existing conversations (bound to this Agent ID)
-            # get the new Prompt/Instructions immediately.
+            # 2. Check if update is needed by comparing instruction hash
+            # We embed the hash in the description prefix to track changes
+            existing_desc = getattr(target_agent, "description", "") or ""
+            existing_hash = ""
+
+            # Extract hash from description if present (format: "[hash] description")
+            if existing_desc.startswith("[") and "]" in existing_desc:
+                existing_hash = existing_desc[1 : existing_desc.index("]")]
+
+            if existing_hash == new_hash:
+                # No changes, skip update to preserve version
+                logger.info(f"Agent '{name}' unchanged (hash={new_hash[:8]}...), skipping update")
+                return target_agent.id
+
+            # 3. Update needed - embed hash in description
+            logger.info(f"Agent '{name}' changed, updating (hash={new_hash[:8]}...)")
+            description_with_hash = f"[{new_hash}] {description}"
             self.client.beta.agents.update(
                 agent_id=target_agent.id,
-                description=description,
+                description=description_with_hash,
                 instructions=instructions,
                 tools=tools or [],
             )
             return target_agent.id
         else:
-            # 3. Create new agent
+            # 3. Create new agent with hash in description
+            description_with_hash = f"[{new_hash}] {description}"
             agent = self.client.beta.agents.create(
                 model=model,
                 name=name,
-                description=description,
+                description=description_with_hash,
                 instructions=instructions,
                 tools=tools or [],
             )

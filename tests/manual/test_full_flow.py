@@ -210,6 +210,24 @@ SCENARIO_TENANT_HEATING: ScenarioDict = {
             "role": "user",
             "content": "Ich möchte wissen, ob ich die Miete mindern kann und wie viel Prozent angemessen wären.",
         },
+        # Additional messages to trigger wrap-up and summary flow
+        {
+            "role": "user",
+            "content": "Der Mietvertrag läuft seit 15.01.2024. Ich habe ihn als PDF hochgeladen.",
+        },
+        {
+            "role": "user",
+            "content": "Mein Vermieter heißt Hans Müller, Müller Immobilien GmbH.",
+        },
+        {
+            "role": "user",
+            "content": "Ich glaube, ich habe Ihnen jetzt alle wichtigen Informationen gegeben.",
+        },
+        # Wrap-up confirmation - this should trigger Summary Agent
+        {
+            "role": "user",
+            "content": "Ja, das stimmt so. Bitte erstellen Sie die Zusammenfassung.",
+        },
     ],
 }
 
@@ -666,6 +684,50 @@ class TestRunner:
                                         current_agent = agent
                                         if self.ctx.stream_display:
                                             print_stream_start(agent)
+
+                                elif msg_type == "function_call":
+                                    # Agent is calling a function - LOG THIS for summary auto-trigger
+                                    function_name = data.get("function", "unknown")
+                                    tool_call_id = data.get("tool_call_id", "")
+                                    arguments = data.get("arguments", "")
+                                    print(f"\n     {Colors.YELLOW}🔧 FUNCTION CALL: {function_name}{Colors.ENDC}")
+                                    print_debug(f"Tool ID: {tool_call_id}", self.ctx.verbose)
+                                    if function_name == "generate_summary":
+                                        print(f"     {Colors.GREEN}📝 SUMMARY AUTO-TRIGGER DETECTED!{Colors.ENDC}")
+                                        try:
+                                            args_dict = json.loads(arguments) if arguments else {}
+                                            if self.ctx.verbose:
+                                                print_debug(f"Summary data keys: {list(args_dict.keys())}", True)
+                                        except json.JSONDecodeError:
+                                            print_debug("Could not parse function arguments", self.ctx.verbose)
+
+                                elif msg_type == "wrapup_ready":
+                                    # Wrap-Up Agent is presenting summary for confirmation
+                                    print(
+                                        f"\n     {Colors.GREEN}📋 WRAP-UP READY - User confirmation needed{Colors.ENDC}"
+                                    )
+                                    print_debug(f"Conversation: {data.get('conversation_id')}", self.ctx.verbose)
+
+                                elif msg_type == "summary_generating":
+                                    # Summary generation started
+                                    print(f"\n     {Colors.GREEN}⏳ SUMMARY GENERATING...{Colors.ENDC}")
+                                    print_debug(f"Conversation: {data.get('conversation_id')}", self.ctx.verbose)
+
+                                elif msg_type == "summary_ready":
+                                    # Summary generated and ready
+                                    summary_id = data.get("summary_id")
+                                    ref_number = data.get("reference_number")
+                                    pdf_url = data.get("pdf_url")
+                                    print(f"\n     {Colors.GREEN}✅ SUMMARY READY!{Colors.ENDC}")
+                                    print(f"     {Colors.GREEN}   ID: {summary_id}{Colors.ENDC}")
+                                    print(f"     {Colors.GREEN}   Ref: {ref_number}{Colors.ENDC}")
+                                    if pdf_url:
+                                        print(f"     {Colors.GREEN}   PDF: {pdf_url[:60]}...{Colors.ENDC}")
+
+                                elif msg_type == "tool_execution":
+                                    # Tool execution started
+                                    tool_name = data.get("tool", "unknown")
+                                    print_debug(f"Tool execution started: {tool_name}", self.ctx.verbose)
 
                                 elif msg_type == "message_chunk":
                                     # Streaming token from server
