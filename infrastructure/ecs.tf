@@ -72,7 +72,7 @@ resource "aws_ecs_task_definition" "mobile_api" {
       { name = "S3_DOCUMENTS_BUCKET", value = aws_s3_bucket.documents[local.s3_env].id },
       { name = "AWS_REGION", value = var.aws_region },
       { name = "CORS_ORIGINS", value = "*" },
-      { name = "ANWALT_API_BASE_URL", value = "https://internal.anwalt.sumii.de" },
+      { name = "ANWALT_API_BASE_URL", value = "https://api.anwalt.sumii.de" },
       { name = "FRONTEND_URL", value = "https://app.sumii.de" },
     ]
 

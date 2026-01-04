@@ -55,7 +55,7 @@ class Summary(Base):
 
     # PDF storage
     pdf_s3_key = Column(String(500), nullable=False)  # S3 object key (e.g., "summaries/{reference_number}.pdf")
-    pdf_url = Column(String(1000), nullable=False)  # Pre-signed URL or permanent URL for download
+    pdf_url = Column(String(2000), nullable=False)  # Pre-signed URL (needs 2000 chars for STS session tokens)
 
     # Metadata (copied from conversation for easy querying)
     legal_area = Column(Enum(LegalArea), nullable=False)
