@@ -10,6 +10,7 @@ from app.models.message import Message, MessageRole
 from app.models.notification import Notification, NotificationType
 from app.models.oauth_account import OAuthAccount
 from app.models.summary import Summary
+from app.models.thinking_block import ThinkingBlock
 from app.models.user import User
 
 __all__ = [
@@ -21,6 +22,7 @@ __all__ = [
     "Document",
     "Notification",
     "LawyerConnection",
+    "ThinkingBlock",
     # Enums
     "ConversationStatus",
     "LegalArea",

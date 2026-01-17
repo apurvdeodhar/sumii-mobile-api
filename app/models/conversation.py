@@ -115,6 +115,7 @@ class Conversation(Base):
     summary = relationship("Summary", back_populates="conversation", uselist=False, cascade="all, delete-orphan")
     documents = relationship("Document", back_populates="conversation", cascade="all, delete-orphan")
     lawyer_connections = relationship("LawyerConnection", cascade="all, delete-orphan")
+    thinking_blocks = relationship("ThinkingBlock", back_populates="conversation", cascade="all, delete-orphan")
 
     # Indexes (composite indexes for common queries)
     __table_args__ = (
