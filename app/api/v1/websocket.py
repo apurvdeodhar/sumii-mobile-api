@@ -16,7 +16,9 @@ from mistralai import (
     FunctionResultEntry,
     MessageOutputEvent,
     Mistral,
+    ResponseDoneEvent,
     ResponseErrorEvent,
+    ToolExecutionDoneEvent,
     ToolExecutionStartedEvent,
 )
 from sqlalchemy import select
@@ -146,6 +148,19 @@ async def _process_single_event(
             )
             return None
 
+        case ToolExecutionDoneEvent():
+            # Tool execution completed
+            tool_name = getattr(event.data, "name", "unknown")
+            logger.info(f"✅ [TOOL_DONE] Tool execution completed: {tool_name}")
+            await websocket.send_json(
+                {
+                    "type": "tool_execution_done",
+                    "tool": tool_name,
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                }
+            )
+            return None
+
         case FunctionCallEvent():
             # Agent is calling a function/tool - capture details
             tool_call_id = getattr(event.data, "tool_call_id", None)
@@ -184,6 +199,11 @@ async def _process_single_event(
                 }
             )
             return "error"
+
+        case ResponseDoneEvent():
+            # CRITICAL: This event signals stream completion!
+            logger.info("🏁 [STREAM] ResponseDoneEvent received - stream complete!")
+            return "done"
 
         case _:
             # Unknown event type - check for completion indicators
