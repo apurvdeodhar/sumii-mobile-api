@@ -195,6 +195,31 @@ inputs=function_results  # List with N FunctionResultEntry objects
 - ALWAYS continue by asking the next logical question
 ```
 
+### 9. Stream Hangs on Function Calls (Fixed)
+**Problem**: Stream processing hangs indefinitely when agent calls `generate_summary` or other functions.
+**Symptom**: Logs show hundreds of `🛠️ [FUNCTION_CALL]` lines but never reach completion.
+**Root Cause**: Missing handler for `ResponseDoneEvent`! The Mistral SDK sends this event to signal stream completion, but we weren't detecting it:
+```python
+# WRONG - only checking "done" in string representation
+if "done" in str(event_type).lower():  # Never matches ResponseDoneEvent!
+```
+**Solution** (in `websocket.py`):
+```python
+from mistralai import ResponseDoneEvent, ToolExecutionDoneEvent
+
+# In _process_single_event:
+case ResponseDoneEvent():
+    logger.info("🏁 [STREAM] ResponseDoneEvent received - stream complete!")
+    return "done"
+```
+**Key Mistral SDK events to handle**:
+- `MessageOutputEvent` - Text chunks
+- `FunctionCallEvent` - Function call with arguments (may stream many times)
+- `AgentHandoffDoneEvent` - Handoff between agents
+- `ResponseDoneEvent` - **CRITICAL: Stream completion signal**
+- `ToolExecutionDoneEvent` - Tool finished executing
+- `ResponseErrorEvent` - Error occurred
+
 ## Configuration
 
 ### Environment Variables
