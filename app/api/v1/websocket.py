@@ -267,12 +267,23 @@ async def process_with_agents(
                 )
             except Exception as e:
                 logger.error(f"❌ [MISTRAL] append_stream FAILED: {type(e).__name__}: {e}")
-                # Check for 404 - conversation expired
-                if "404" in str(e) or "not found" in str(e).lower():
+                # Check for 404 - conversation/agent expired (happens when agents are recreated)
+                if "404" in str(e) or "not found" in str(e).lower() or "does not have a version" in str(e).lower():
                     logger.warning(
-                        f"⚠️ [MISTRAL] Conversation {existing_conv_id} expired (404). Will need new conversation."
+                        f"⚠️ [MISTRAL] Conversation {existing_conv_id} is stale (agents recreated). "
+                        "Resetting and creating fresh conversation..."
                     )
-                raise
+                    # Clear the stale conversation ID and create a fresh one
+                    conversation.mistral_conversation_id = None
+                    await db.commit()
+                    # Retry with start_stream to create a fresh Mistral conversation
+                    logger.info(f"🔄 [MISTRAL] Retrying with start_stream() for router_id={router_id}")
+                    response = client.beta.conversations.start_stream(
+                        agent_id=router_id,
+                        inputs=user_message_content,
+                    )
+                else:
+                    raise
         else:
             # Start new conversation
             logger.info(f"🆕 [MISTRAL] Calling start_stream() with router_id={router_id}")
@@ -282,10 +293,9 @@ async def process_with_agents(
             )
 
         # Process events from stream (using context manager like cookbook)
-        # Track function call accumulation (cookbook pattern from travel_assistant)
-        pending_tool_call_id: str | None = None
-        pending_function_name: str = ""
-        pending_arguments: str = ""
+        # Track ALL function calls - agents can call multiple functions at once
+        pending_function_calls: list[dict] = []  # Each: {tool_call_id, function_name, arguments}
+        current_function_call: dict | None = None  # Currently accumulating function call
 
         logger.debug("[MISTRAL] Starting stream processing...")
 
@@ -302,9 +312,11 @@ async def process_with_agents(
                 first_event, websocket, full_response_parts, current_agent_name, conversation
             )
             if isinstance(first_result, tuple) and first_result[0] == "function_call":
-                pending_tool_call_id = first_result[1]
-                pending_function_name = first_result[2]
-                pending_arguments += first_result[3] or ""
+                current_function_call = {
+                    "tool_call_id": first_result[1],
+                    "function_name": first_result[2],
+                    "arguments": first_result[3] or "",
+                }
 
             # Process remaining events
             for event in event_stream:
@@ -320,24 +332,57 @@ async def process_with_agents(
                 elif result == "error":
                     return
                 elif isinstance(result, tuple) and result[0] == "function_call":
-                    # Accumulate function call data (cookbook pattern line 174)
-                    pending_tool_call_id = result[1]
-                    pending_function_name = result[2]
-                    pending_arguments += result[3] or ""
+                    new_tool_call_id = result[1]
+                    new_function_name = result[2]
+                    new_arguments = result[3] or ""
 
-        # Handle pending function call AFTER stream completes (cookbook pattern lines 182-186)
+                    # Check if this is a NEW function call or continuation of current one
+                    if current_function_call is None:
+                        # First function call
+                        current_function_call = {
+                            "tool_call_id": new_tool_call_id,
+                            "function_name": new_function_name,
+                            "arguments": new_arguments,
+                        }
+                    elif new_tool_call_id == current_function_call["tool_call_id"]:
+                        # Same tool_call_id = continuation, accumulate arguments
+                        current_function_call["arguments"] += new_arguments
+                    else:
+                        # Different tool_call_id = new function call
+                        # Save the completed previous call
+                        pending_function_calls.append(current_function_call)
+                        logger.info(f"📦 [FUNC] Saved function call: {current_function_call['function_name']}")
+                        # Start new call
+                        current_function_call = {
+                            "tool_call_id": new_tool_call_id,
+                            "function_name": new_function_name,
+                            "arguments": new_arguments,
+                        }
+
+            # Don't forget the last function call
+            if current_function_call:
+                pending_function_calls.append(current_function_call)
+                logger.info(f"📦 [FUNC] Saved final function call: {current_function_call['function_name']}")
+
+        # Handle ALL pending function calls (Mistral requires response for EACH call)
         # Track if summary generation should be triggered
         trigger_summary_generation = False
         summary_case_data = None
-        confirmation_data = None
-        document_tracking_data = None
 
-        if pending_tool_call_id:
+        function_results: list[FunctionResultEntry] = []
+
+        for func_call in pending_function_calls:
+            tool_call_id = func_call["tool_call_id"]
+            function_name = func_call["function_name"]
+            arguments = func_call["arguments"]
+
+            logger.info(f"🔧 [FUNC] Processing: {function_name} (id: {tool_call_id})")
+
             # WRAP-UP: Handle signal_confirmation from Wrap-Up Agent
-            if pending_function_name == "signal_confirmation":
+            if function_name == "signal_confirmation":
                 logger.info(f"✅ [WRAPUP] signal_confirmation called for conversation {conversation.id}")
                 try:
-                    confirmation_data = json.loads(pending_arguments) if pending_arguments else {}
+                    confirmation_data = json.loads(arguments) if arguments else {}
                     is_confirmed = confirmation_data.get("confirmed", False)
                     user_summary = confirmation_data.get("user_response_summary", "")
                     corrections = confirmation_data.get("corrections_needed", "")
@@ -355,22 +400,22 @@ async def process_with_agents(
                             "timestamp": datetime.now(timezone.utc).isoformat(),
                         }
                     )
-
                 except json.JSONDecodeError as e:
                     logger.error(f"Failed to parse confirmation arguments: {e}")
+                    logger.error(f"[CONFIRM] Raw args: {arguments[:200] if arguments else 'None'}")
 
             # WRAP-UP: Handle track_documents from Wrap-Up Agent
-            elif pending_function_name == "track_documents":
+            elif function_name == "track_documents":
                 logger.info(f"📋 [WRAPUP] track_documents called for conversation {conversation.id}")
                 try:
-                    document_tracking_data = json.loads(pending_arguments) if pending_arguments else {}
+                    document_tracking_data = json.loads(arguments) if arguments else {}
                     docs = document_tracking_data.get("documents", [])
                     missing = document_tracking_data.get("missing_critical_documents", [])
                     summary = document_tracking_data.get("evidence_summary", "")
 
                     logger.info(f"[WRAPUP] Tracked {len(docs)} documents, {len(missing)} missing")
 
-                    # Store document tracking in conversation (for future notifications)
+                    # Store document tracking in conversation
                     if hasattr(conversation, "document_tracker"):
                         conversation.document_tracker = document_tracking_data
 
@@ -385,15 +430,14 @@ async def process_with_agents(
                             "timestamp": datetime.now(timezone.utc).isoformat(),
                         }
                     )
-
                 except json.JSONDecodeError as e:
                     logger.error(f"Failed to parse document tracking arguments: {e}")
+                    logger.error(f"[TRACK_DOCS] Raw args: {arguments[:200] if arguments else 'None'}")
 
-            # AUTO-TRIGGER: If Summary Agent called generate_summary, prepare for summary generation
-            elif pending_function_name == "generate_summary":
+            # Summary Agent: Handle generate_summary
+            elif function_name == "generate_summary":
                 logger.info(f"📝 AUTO-TRIGGER: Summary generation for conversation {conversation.id}")
 
-                # Send "summary_generating" event to client
                 await websocket.send_json(
                     {
                         "type": "summary_generating",
@@ -402,28 +446,40 @@ async def process_with_agents(
                     }
                 )
 
-                # Parse structured case data from function arguments
                 try:
-                    summary_case_data = json.loads(pending_arguments) if pending_arguments else {}
+                    summary_case_data = json.loads(arguments) if arguments else {}
                     trigger_summary_generation = True
                     logger.info(f"Summary data keys: {list(summary_case_data.keys())}")
                 except json.JSONDecodeError as e:
                     logger.error(f"Failed to parse summary arguments: {e}")
+                    logger.error(f"[SUMMARY] Raw args: {arguments[:200] if arguments else 'None'}")
 
-            # Create function result (our functions are data collectors, return success)
-            function_result = FunctionResultEntry(
-                tool_call_id=pending_tool_call_id,
-                result=f"Function {pending_function_name} executed successfully. Data collected.",
+            # Build function result for this call
+            function_results.append(
+                FunctionResultEntry(
+                    tool_call_id=tool_call_id,
+                    result=f"Function {function_name} executed successfully. Data collected.",
+                )
             )
 
-            # Get conversation ID for append
+        # Send ALL function results back to Mistral (if any)
+        if function_results:
+            logger.info(f"📤 [FUNC] Sending {len(function_results)} function result(s) back to Mistral")
             conv_id = conversation.mistral_conversation_id
             if conv_id:
-                # Send function result back to conversation
-                continuation = client.beta.conversations.append_stream(
-                    conversation_id=conv_id,
-                    inputs=[function_result],
-                )
+                try:
+                    continuation = client.beta.conversations.append_stream(
+                        conversation_id=conv_id,
+                        inputs=function_results,  # Send ALL results at once
+                    )
+                except Exception as e:
+                    logger.error(f"❌ [MISTRAL] Function result append FAILED: {type(e).__name__}: {e}")
+                    if "404" in str(e) or "not found" in str(e).lower() or "does not have a version" in str(e).lower():
+                        logger.warning(f"⚠️ [MISTRAL] Conversation {conv_id} is stale. Clearing and exiting.")
+                        conversation.mistral_conversation_id = None
+                        await db.commit()
+                        return
+                    raise
                 # Process continuation events
                 with continuation as cont_stream:
                     for cont_event in cont_stream:

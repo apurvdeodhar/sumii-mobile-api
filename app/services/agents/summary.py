@@ -198,7 +198,7 @@ Zwischen den Parteien besteht ein Mietverhältnis seit 01.01.2022. Die monatlich
 
     return factory.create_agent(
         model="mistral-medium-2505",
-        name="Legal Summary Agent",
+        name="Summary Agent",
         description="""Agent to generate professional factual summaries.
 This agent receives cases AFTER fact collection is complete.
 It creates structured factual documentation for lawyer review.

@@ -143,6 +143,58 @@ You are a LEGAL ASSISTANT. Handling personal documents is your JOB.
 - Skip updates when hash matches (no changes)
 - Logs: `"Agent 'X' unchanged (hash=...), skipping update"`
 
+### 6. Stale Conversations Cause 404 (Fixed - Auto-Recovery)
+**Problem**: After agents are deleted/recreated, existing conversations fail with 404:
+```
+Agent with id ag_xxx does not have a version 1
+```
+**Cause**: A conversation stores `mistral_conversation_id` in DB. When agents change, old Mistral conversations become invalid.
+**Solution** (in `websocket.py`):
+```python
+# When append_stream fails with 404:
+if "404" in str(e) or "does not have a version" in str(e):
+    conversation.mistral_conversation_id = None  # Clear stale ID
+    await db.commit()
+    # Retry with start_stream() for fresh conversation
+    response = client.beta.conversations.start_stream(agent_id=router_id, inputs=...)
+```
+
+### 7. Parallel Function Calling Requires Multiple Results (Fixed)
+**Problem**: When an agent calls 2+ functions at once (e.g., `signal_confirmation` + `track_documents`):
+```
+Error: Not the same number of function calls and responses (code: 3230)
+```
+**Root Cause**: The original code from Mistral cookbook only handles ONE function call:
+```python
+# WRONG - concatenates JSON, loses tool_call_ids
+pending_arguments += result[3]  # {"a":1}{"b":2} = INVALID!
+```
+**Solution**: Track each function call separately and send ALL results back:
+```python
+# Each function tracked with its own ID and arguments
+pending_function_calls: list[dict] = []
+for func_call in pending_function_calls:
+    function_results.append(FunctionResultEntry(
+        tool_call_id=func_call["tool_call_id"],
+        result=f"Function {func_call['function_name']} executed.",
+    ))
+# Send ALL results at once
+inputs=function_results  # List with N FunctionResultEntry objects
+```
+**Reference**: See `Chainlit_Mistral_reasoning.ipynb` in Mistral cookbook for `run_multiple()` pattern.
+
+### 8. LLM Refusal Hallucination (Fixed)
+**Problem**: Agent randomly says: "I don't have the necessary tools or information to assist"
+**Cause**: Generic LLM fallback response when it loses context during handoffs.
+**Solution**: Added explicit anti-refusal instructions to `SUMII_CORE_DOS_DONTS`:
+```
+**NEVER SAY (critical anti-refusal instructions):**
+- "I don't have the necessary tools or information to assist"
+- "I'm not able to help with this specific issue"
+- Any variation of refusing to continue the interview
+- ALWAYS continue by asking the next logical question
+```
+
 ## Configuration
 
 ### Environment Variables

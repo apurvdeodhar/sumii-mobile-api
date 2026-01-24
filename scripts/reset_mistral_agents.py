@@ -70,13 +70,19 @@ def main():
     for agent in agents:
         print(f"  - {agent.name} (ID: {agent.id})")
 
-    # Filter to only Sumii agents (by name pattern)
+    # Filter to only Sumii agents (by name pattern) - includes old and new names
     sumii_agent_names = [
+        # Current names (v2)
+        "Router Agent",
+        "Intake Agent",
+        "Facts Agent",
+        "Reasoning Logic Agent",
+        "Wrap-Up Agent",
+        "Summary Agent",
+        # Old names (v1)
         "Legal Router Agent",
         "Legal Intake Agent",
         "Fact Completion Agent",
-        "Reasoning Logic Agent",
-        "Wrap-Up Agent",
         "Legal Summary Agent",
     ]
 
