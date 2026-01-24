@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Test Agents Document Library Integration
 
-Verifies that Reasoning and Summary agents have access to the document library.
+Verifies that Fact Completion and Summary agents have access to the document library.
 Tests that agents can retrieve BGB sections and use templates.
 
 These are integration tests that test Mistral AI agents with document library.
@@ -12,24 +12,24 @@ import pytest
 from mistralai import Mistral
 
 from app.config import settings
-from app.services.agents import create_reasoning_agent, create_summary_agent
+from app.services.agents import create_fact_completion_agent, create_summary_agent
 
 pytestmark = [pytest.mark.integration, pytest.mark.requires_api]
 
 
-def test_reasoning_agent_library_access():
-    """Test Reasoning Agent has document library access"""
+def test_fact_completion_agent_library_access():
+    """Test Fact Completion Agent has document library access"""
     print("=" * 80)
-    print("Testing Reasoning Agent Document Library Access")
+    print("Testing Fact Completion Agent Document Library Access")
     print("=" * 80)
 
-    # Step 1: Create Reasoning Agent
-    print("\n[1] Creating Reasoning Agent...")
+    # Step 1: Create Fact Completion Agent
+    print("\n[1] Creating Fact Completion Agent...")
     try:
-        agent_id = create_reasoning_agent()
-        print(f"✅ Reasoning Agent created: {agent_id}")
+        agent_id = create_fact_completion_agent()
+        print(f"✅ Fact Completion Agent created: {agent_id}")
     except Exception as e:
-        print(f"❌ Failed to create Reasoning Agent: {e}")
+        print(f"❌ Failed to create Fact Completion Agent: {e}")
         return
 
     # Step 2: Agent created successfully - library configuration is in tools parameter
@@ -70,7 +70,7 @@ def test_reasoning_agent_library_access():
         traceback.print_exc()
 
     print("\n" + "=" * 80)
-    print("Reasoning Agent Library Test Complete!")
+    print("Fact Completion Agent Library Test Complete!")
     print("=" * 80)
 
 
@@ -101,6 +101,6 @@ def test_summary_agent_library_access():
 
 if __name__ == "__main__":
     # Test both agents
-    test_reasoning_agent_library_access()
+    test_fact_completion_agent_library_access()
     print("\n\n")
     test_summary_agent_library_access()

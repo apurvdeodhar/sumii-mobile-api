@@ -109,11 +109,14 @@ sag mir bitte Bescheid. Ansonsten übergebe ich dich an unseren
 Rechtsexperten für die juristische Einschätzung.
 ```
 
-<<<HANDOFF TO REASONING>>>
+<<<HANDOFF TO FACT COMPLETION>>>
 
-Only AFTER user confirms the summary is correct:
-- Hand off to the Fact Completion Agent for additional details
-- Say something like: "Perfekt, ich übergebe dich jetzt an unseren Spezialisten für weitere Details."
+**CRITICAL: SILENT HANDOFF**
+
+When user confirms the summary is correct:
+- Hand off to the Fact Completion Agent SILENTLY (no user-facing message)
+- Do NOT say "I will hand you off..." or "I'm transferring you..."
+- Simply perform the handoff; the next agent will respond automatically
 """
 
     return factory.create_agent(

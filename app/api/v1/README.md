@@ -100,9 +100,9 @@ Authorization: Bearer <access_token>
 
 ---
 
-## Events
+## Events (SSE)
 
-Server-Sent Events for real-time updates.
+Server-Sent Events for real-time updates (notifications).
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
@@ -111,6 +111,66 @@ Server-Sent Events for real-time updates.
 Event types: `summary_ready`, `lawyer_response`, `case_updated`
 
 ---
+
+## WebSocket Events
+
+Real-time events sent during chat via `/ws/chat/{conversation_id}`.
+
+### Connection
+
+```javascript
+// Connect with auth token
+const ws = new WebSocket(`wss://api.sumii.de/ws/chat/${conversationId}?token=${accessToken}`);
+```
+
+### Event Types
+
+| Event | Direction | Description |
+|-------|-----------|-------------|
+| `message_chunk` | Server→Client | Streaming AI response chunk |
+| `message_complete` | Server→Client | Response finished, final message ID |
+| `agent_start` | Server→Client | Agent activated |
+| `agent_handoff` | Server→Client | Transition from one agent to another |
+| `function_call` | Server→Client | Tool/function execution |
+| `reasoning_started` | Server→Client | Reasoning Logic agent processing |
+| `facts_complete` | Server→Client | 4+/5 Ws filled |
+| `wrapup_ready` | Server→Client | Ready for user confirmation |
+| `summary_ready` | Server→Client | Summary generated |
+| `error` | Server→Client | Error occurred |
+
+### Event Payloads
+
+```typescript
+// message_chunk
+{ type: "message_chunk", content: string, agent: string }
+
+// message_complete
+{ type: "message_complete", messageId: string, content: string }
+
+// agent_start / agent_handoff
+{ type: "agent_start", agent: string, timestamp: string }
+{ type: "agent_handoff", fromAgent: string, toAgent: string, timestamp: string }
+
+// function_call
+{ type: "function_call", function: string, arguments: object, tool_call_id: string }
+
+// summary_ready
+{ type: "summary_ready", summaryId: string, referenceNumber: string,
+  conversationId: string, pdfUrl: string, timestamp: string }
+
+// error
+{ type: "error", error: string, code: string }
+```
+
+### Sending Messages
+
+```javascript
+ws.send(JSON.stringify({
+  type: "message",
+  content: "Hello, my heating is broken",
+  documentIds: ["uuid-1", "uuid-2"]  // optional
+}));
+```
 
 ## Sync
 

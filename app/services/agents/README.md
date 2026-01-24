@@ -8,10 +8,12 @@ This module implements the multi-agent orchestration system using the Mistral AI
 flowchart LR
     User[User Message] --> Router[Router Agent]
     Router --> Intake[Intake Agent]
-    Intake --> |"5W facts complete"| Reasoning[Reasoning Agent]
-    Reasoning --> |"facts collected"| WrapUp[Wrap-Up Agent]
+    Intake --> |"5W facts complete"| FactComp[Fact Completion Agent]
+    FactComp --> |"checklist complete"| Reasoning[Reasoning Logic Agent]
+    Reasoning --> |"no contradictions"| WrapUp[Wrap-Up Agent]
+    Reasoning -.-> |"contradiction found"| FactComp
     WrapUp --> |"user confirms"| Summary[Summary Agent]
-    WrapUp --> |"user corrects"| Reasoning
+    WrapUp -.-> |"user corrects"| FactComp
     Summary --> User
 ```
 
@@ -21,9 +23,13 @@ flowchart LR
 |-------|---------|-------|
 | **Router** | Silent routing to specialist agents | mistral-medium-2505 |
 | **Intake** | Collect facts using 5W framework (Who, What, When, Where, Why) | mistral-medium-2505 |
-| **Reasoning** | Additional fact gathering based on collected facts | mistral-medium-2505 |
-| **Wrap-Up** | Present structured summary for user confirmation before summary | mistral-medium-2505 |
-| **Summary** | Generate user-friendly summary | mistral-medium-2505 |
+| **Fact Completion** | Additional fact gathering with mandatory checklist | mistral-medium-2505 |
+| **Reasoning Logic** | **Contradiction detection and fact verification** | **magistral-medium-latest** |
+| **Wrap-Up** | Present structured summary for user confirmation | mistral-medium-2505 |
+| **Summary** | Generate user-friendly summary for lawyers | mistral-medium-2505 |
+
+> **NEW**: Reasoning Logic Agent uses Mistral's Magistral model for multi-step reasoning
+> and can detect logical contradictions (e.g., "hit tree on Autobahn where trees are rare").
 
 ## Key Files
 
@@ -33,7 +39,8 @@ flowchart LR
 | `utils.py` | `AgentFactory`, shared prompts (`SUMII_CORE_DOS_DONTS`) |
 | `router.py` | Router agent creation |
 | `intake.py` | Intake agent creation + 5W tools |
-| `reasoning.py` | Reasoning agent creation |
+| `fact_completion.py` | Fact Completion agent - mandatory checklist before handoff |
+| `reasoning_logic.py` | **Reasoning Logic agent - Magistral model for contradiction detection** |
 | `wrapup.py` | Wrap-Up agent - confirms facts before summary |
 | `summary.py` | Summary agent creation |
 
@@ -149,15 +156,20 @@ MISTRAL_API_KEY=your-api-key
 Handoffs are configured after all agents are created:
 
 ```python
-# Router can hand off to all agents
-client.beta.agents.update(
-    agent_id=router_id,
-    handoffs=[intake_id, reasoning_id, summary_id]
-)
+# Router can hand off to Intake
+client.beta.agents.update(agent_id=router_id, handoffs=[intake_id])
 
-# Intake -> Reasoning -> Summary chain
-client.beta.agents.update(agent_id=intake_id, handoffs=[reasoning_id])
-client.beta.agents.update(agent_id=reasoning_id, handoffs=[summary_id])
+# Intake -> Fact Completion
+client.beta.agents.update(agent_id=intake_id, handoffs=[fact_completion_id])
+
+# Fact Completion -> Reasoning Logic
+client.beta.agents.update(agent_id=fact_completion_id, handoffs=[reasoning_logic_id])
+
+# Reasoning Logic -> Wrap-Up (or back to Fact Completion on contradiction)
+client.beta.agents.update(agent_id=reasoning_logic_id, handoffs=[wrapup_id, fact_completion_id])
+
+# Wrap-Up -> Summary (or back to Fact Completion on correction)
+client.beta.agents.update(agent_id=wrapup_id, handoffs=[summary_id, fact_completion_id])
 ```
 
 ## Debugging

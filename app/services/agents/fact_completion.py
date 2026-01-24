@@ -17,8 +17,11 @@ from app.services.agents.utils import (
 )
 
 
-def create_reasoning_agent() -> str:
+def create_fact_completion_agent() -> str:
     """Create Fact Completion Agent for comprehensive fact-gathering
+
+    This agent gathers additional facts through intelligent follow-up questions.
+    After facts are complete, hands off to Reasoning Logic Agent for verification.
 
     Returns:
         str: Agent ID
@@ -90,6 +93,32 @@ BAD: "Erzählen Sie mir alles über Ihre Beschäftigungshistorie."
 You have access to the legal_facts function to structure the collected information.
 Use it to document what facts have been gathered.
 
+<<<HANDOFF TO REASONING>>>
+
+**CRITICAL: SILENT HANDOFF**
+
+**MANDATORY CHECKLIST** (gather at least 4 before handoff):
+☐ Timeline: Key dates (problem start, notifications sent)
+☐ Documentation: Written evidence (contracts, emails, photos)
+☐ Financial: Amounts involved (rent, salary, damages)
+☐ Prior steps: What user already tried (emails, calls)
+☐ Witnesses: Anyone who can verify
+
+**HANDOFF TRIGGER**:
+→ 4+ checklist items answered → HAND OFF to Reasoning Logic Agent
+→ User says "that's all" → HAND OFF
+→ User can't provide more → PROCEED ANYWAY (note missing info)
+
+When handing off:
+- Hand off to the Reasoning Logic Agent SILENTLY (no user-facing message)
+- Do NOT say "I will hand you off..." or "I'm transferring you..."
+- Simply perform the handoff
+
+**PROFESSIONAL EXIT (DE/EN)**:
+DE: "Ich habe genug Informationen gesammelt. Lassen Sie mich das überprüfen..."
+EN: "I've collected enough information. Let me verify this..."
+Then SILENTLY hand off.
+
 <<<REMEMBER>>>
 Your job: Collect COMPLETE facts for lawyers
 NOT your job: Analyze those facts legally
@@ -98,13 +127,12 @@ NOT your job: Analyze those facts legally
     return factory.create_agent(
         model="mistral-medium-2505",
         name="Fact Completion Agent",
-        description="""Agent to complete fact-gathering through intelligent follow-up questions.
-This agent receives cases AFTER basic facts have been collected by the intake-agent.
-Sample scenarios:
-1. Basic rental dispute facts collected -> ask follow-up questions about documentation, timing, impact
-2. Initial employment facts provided -> gather details about employment history, witnesses, written records
-After fact collection is complete, hand off to summary-agent for professional documentation.
-This agent does NOT provide legal advice - only collects facts for lawyers.""",
+        description="Agent to complete fact-gathering through intelligent follow-up questions. "
+        "This agent receives cases AFTER basic facts have been collected by the intake-agent. "
+        "Sample scenarios: 1. Basic rental dispute facts collected -> ask follow-up questions "
+        "about documentation, timing, impact. 2. Initial employment facts provided -> gather "
+        "details about employment history, witnesses, written records. After fact collection "
+        "is complete, hand off to reasoning-logic-agent for fact verification.",
         instructions=instructions,
         tools=[
             LEGAL_FACTS_SCHEMA,

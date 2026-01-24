@@ -45,6 +45,10 @@ async def _process_single_event(
         "error" - error occurred
         ("function_call", tool_call_id, function_name, arguments) - function call to handle
     """
+    # DEBUG: Log every event type received
+    event_type_name = type(event.data).__name__ if hasattr(event, "data") else type(event).__name__
+    logger.debug(f"[EVENT] Received event type: {event_type_name} (agent: {current_agent_name})")
+
     # Use isinstance matching like the cookbook pattern
     match event.data:
         case MessageOutputEvent():
@@ -76,6 +80,7 @@ async def _process_single_event(
             next_agent = getattr(event.data, "next_agent_name", "unknown")
             # Normalize agent name: lowercase, underscores, remove prefixes
             next_agent_normalized = next_agent.lower().replace(" ", "_").replace("legal_", "")
+            logger.info(f"🔄 [HANDOFF] {current_agent_name} → {next_agent_normalized} (raw: {next_agent})")
             await websocket.send_json(
                 {
                     "type": "agent_handoff",
@@ -93,8 +98,24 @@ async def _process_single_event(
                 }
             )
 
+            # Send reasoning_started event when handoff to reasoning logic agent
+            if "reasoning" in next_agent_normalized and "logic" in next_agent_normalized:
+                logger.debug("[REASONING] 🧠 Reasoning Logic Agent activated - will check for contradictions")
+                await websocket.send_json(
+                    {
+                        "type": "reasoning_started",
+                        "conversation_id": str(conversation.id) if conversation else None,
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                    }
+                )
+                # Update conversation reasoning_started_at if available
+                if conversation:
+                    conversation.reasoning_started_at = datetime.now(timezone.utc)
+                    logger.debug(f"[REASONING] Updated reasoning_started_at for conversation {conversation.id}")
+
             # Send wrapup_ready event when handoff to wrap-up agent for ThinkingBlocks
             if "wrap" in next_agent_normalized and "up" in next_agent_normalized:
+                logger.debug("[WRAPUP] 📋 Wrap-Up Agent activated - ready for user confirmation")
                 await websocket.send_json(
                     {
                         "type": "wrapup_ready",
@@ -102,6 +123,14 @@ async def _process_single_event(
                         "timestamp": datetime.now(timezone.utc).isoformat(),
                     }
                 )
+
+            # Log summary agent activation
+            if "summary" in next_agent_normalized:
+                logger.debug("[SUMMARY] 📄 Summary Agent activated - generating final summary")
+                # Update conversation summary_started_at if available
+                if conversation:
+                    conversation.summary_started_at = datetime.now(timezone.utc)
+                    logger.debug(f"[SUMMARY] Updated summary_started_at for conversation {conversation.id}")
 
             return "handoff"
 
@@ -122,6 +151,12 @@ async def _process_single_event(
             tool_call_id = getattr(event.data, "tool_call_id", None)
             function_name = getattr(event.data, "name", "unknown")
             arguments = getattr(event.data, "arguments", "")
+            logger.info(f"🛠️ [FUNCTION_CALL] Agent {current_agent_name} calling: {function_name} (id: {tool_call_id})")
+            logger.debug(
+                f"[FUNCTION_CALL] Arguments: {arguments[:200]}..."
+                if len(str(arguments)) > 200
+                else f"[FUNCTION_CALL] Arguments: {arguments}"
+            )
             await websocket.send_json(
                 {
                     "type": "function_call",
@@ -137,6 +172,9 @@ async def _process_single_event(
         case ResponseErrorEvent():
             # Error occurred
             error_msg = getattr(event.data, "message", "Unknown error")
+            error_code = getattr(event.data, "code", None)
+            logger.error(f"❌ [RESPONSE_ERROR] Agent {current_agent_name}: {error_msg} (code: {error_code})")
+            logger.debug(f"[RESPONSE_ERROR] Full event data: {event.data}")
             await websocket.send_json(
                 {
                     "type": "error",
@@ -150,7 +188,9 @@ async def _process_single_event(
         case _:
             # Unknown event type - check for completion indicators
             event_type = getattr(event, "event", "") or str(type(event.data))
+            logger.debug(f"[EVENT] Unknown/other event type: {event_type}")
             if "done" in str(event_type).lower() or "complete" in str(event_type).lower():
+                logger.debug(f"[EVENT] Stream completion detected via event type: {event_type}")
                 return "done"
             return None
 
@@ -212,18 +252,30 @@ async def process_with_agents(
 
         # Check if we have an existing Mistral conversation to continue
         existing_conv_id = conversation.mistral_conversation_id
+        logger.debug(f"[MISTRAL] Conversation {conversation.id}: existing_conv_id={existing_conv_id}")
 
         # Use correct API pattern from Mistral cookbooks:
         # - start_stream() for first message
         # - append_stream() for subsequent messages
         if existing_conv_id:
             # Continue existing conversation - context preserved
-            response = client.beta.conversations.append_stream(
-                conversation_id=existing_conv_id,
-                inputs=user_message_content,
-            )
+            logger.info(f"📤 [MISTRAL] Calling append_stream() for conv_id={existing_conv_id}")
+            try:
+                response = client.beta.conversations.append_stream(
+                    conversation_id=existing_conv_id,
+                    inputs=user_message_content,
+                )
+            except Exception as e:
+                logger.error(f"❌ [MISTRAL] append_stream FAILED: {type(e).__name__}: {e}")
+                # Check for 404 - conversation expired
+                if "404" in str(e) or "not found" in str(e).lower():
+                    logger.warning(
+                        f"⚠️ [MISTRAL] Conversation {existing_conv_id} expired (404). Will need new conversation."
+                    )
+                raise
         else:
             # Start new conversation
+            logger.info(f"🆕 [MISTRAL] Calling start_stream() with router_id={router_id}")
             response = client.beta.conversations.start_stream(
                 agent_id=router_id,
                 inputs=user_message_content,
@@ -235,11 +287,14 @@ async def process_with_agents(
         pending_function_name: str = ""
         pending_arguments: str = ""
 
+        logger.debug("[MISTRAL] Starting stream processing...")
+
         with response as event_stream:
             # Capture conversation_id from first event (cookbook pattern line 138)
             first_event = next(iter(event_stream))
             if not existing_conv_id and hasattr(first_event.data, "conversation_id"):
                 conversation.mistral_conversation_id = first_event.data.conversation_id
+                logger.info(f"🔗 [MISTRAL] New conversation created: {conversation.mistral_conversation_id}")
                 await db.commit()
 
             # Process first event
@@ -274,10 +329,68 @@ async def process_with_agents(
         # Track if summary generation should be triggered
         trigger_summary_generation = False
         summary_case_data = None
+        confirmation_data = None
+        document_tracking_data = None
 
         if pending_tool_call_id:
+            # WRAP-UP: Handle signal_confirmation from Wrap-Up Agent
+            if pending_function_name == "signal_confirmation":
+                logger.info(f"✅ [WRAPUP] signal_confirmation called for conversation {conversation.id}")
+                try:
+                    confirmation_data = json.loads(pending_arguments) if pending_arguments else {}
+                    is_confirmed = confirmation_data.get("confirmed", False)
+                    user_summary = confirmation_data.get("user_response_summary", "")
+                    corrections = confirmation_data.get("corrections_needed", "")
+
+                    logger.info(f"[WRAPUP] Confirmed: {is_confirmed}, Response: {user_summary}")
+
+                    # Send confirmation event to client
+                    await websocket.send_json(
+                        {
+                            "type": "confirmation_received",
+                            "confirmed": is_confirmed,
+                            "user_response": user_summary,
+                            "corrections_needed": corrections if not is_confirmed else None,
+                            "conversation_id": str(conversation.id),
+                            "timestamp": datetime.now(timezone.utc).isoformat(),
+                        }
+                    )
+
+                except json.JSONDecodeError as e:
+                    logger.error(f"Failed to parse confirmation arguments: {e}")
+
+            # WRAP-UP: Handle track_documents from Wrap-Up Agent
+            elif pending_function_name == "track_documents":
+                logger.info(f"📋 [WRAPUP] track_documents called for conversation {conversation.id}")
+                try:
+                    document_tracking_data = json.loads(pending_arguments) if pending_arguments else {}
+                    docs = document_tracking_data.get("documents", [])
+                    missing = document_tracking_data.get("missing_critical_documents", [])
+                    summary = document_tracking_data.get("evidence_summary", "")
+
+                    logger.info(f"[WRAPUP] Tracked {len(docs)} documents, {len(missing)} missing")
+
+                    # Store document tracking in conversation (for future notifications)
+                    if hasattr(conversation, "document_tracker"):
+                        conversation.document_tracker = document_tracking_data
+
+                    # Send document tracking event to client
+                    await websocket.send_json(
+                        {
+                            "type": "documents_tracked",
+                            "document_count": len(docs),
+                            "missing_count": len(missing),
+                            "evidence_summary": summary,
+                            "conversation_id": str(conversation.id),
+                            "timestamp": datetime.now(timezone.utc).isoformat(),
+                        }
+                    )
+
+                except json.JSONDecodeError as e:
+                    logger.error(f"Failed to parse document tracking arguments: {e}")
+
             # AUTO-TRIGGER: If Summary Agent called generate_summary, prepare for summary generation
-            if pending_function_name == "generate_summary":
+            elif pending_function_name == "generate_summary":
                 logger.info(f"📝 AUTO-TRIGGER: Summary generation for conversation {conversation.id}")
 
                 # Send "summary_generating" event to client
@@ -457,6 +570,13 @@ async def process_with_agents(
 
     except Exception as e:
         # Handle errors gracefully
+        import traceback
+
+        logger.error(f"❌ [PROCESS_ERROR] Exception in process_with_agents: {type(e).__name__}: {e}")
+        logger.error(
+            f"[PROCESS_ERROR] Conversation: {conversation.id}, Mistral conv: {conversation.mistral_conversation_id}"
+        )
+        logger.debug(f"[PROCESS_ERROR] Traceback:\n{traceback.format_exc()}")
         await websocket.send_json(
             {
                 "type": "error",

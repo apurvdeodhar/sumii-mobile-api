@@ -88,8 +88,15 @@ class Conversation(Base):
 
     # Conversation state metadata (for dynamic orchestration)
     facts_collected = Column(JSONB, nullable=True)  # All collected facts
-    analysis_done = Column(Boolean, default=False, nullable=False)  # Reasoning completed
+    reasoning_done = Column(Boolean, default=False, nullable=False)  # Reasoning completed (renamed from analysis_done)
     summary_generated = Column(Boolean, default=False, nullable=False)  # Summary created
+
+    # Agent progress timestamps (for WS events)
+    reasoning_started_at = Column(DateTime(timezone=True), nullable=True)  # When reasoning agent activated
+    summary_started_at = Column(DateTime(timezone=True), nullable=True)  # When summary agent activated
+
+    # Missing info tracking (for reminder notifications)
+    missing_info = Column(JSONB, nullable=True)  # {"documents": ["rental_contract", "email_copy"]}
 
     # Structured facts (5W framework)
     who = Column(JSONB, nullable=True)  # Parties involved: {"claimant": "...", "defendant": "..."}
@@ -106,6 +113,10 @@ class Conversation(Base):
     wrapup_confirmed = Column(Boolean, default=False, nullable=False)
     wrapup_content = Column(String, nullable=True)  # Markdown content shown to user
     wrapup_confirmed_at = Column(DateTime(timezone=True), nullable=True)
+
+    # Document tracking (from track_documents tool)
+    # Stores: {documents: [...], missing_critical_documents: [...], evidence_summary: "..."}
+    document_tracker = Column(JSONB, nullable=True)
 
     # Relationships
     user = relationship("User", back_populates="conversations")
