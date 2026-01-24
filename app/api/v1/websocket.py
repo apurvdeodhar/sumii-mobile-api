@@ -237,6 +237,12 @@ async def process_with_agents(
         current_agent_name = "router"
         full_response_parts: list[str] = []
 
+        # Log start of processing
+        logger.info(f"{'='*60}")
+        logger.info(f"🚀 [START] Processing message for conversation {conversation.id}")
+        logger.info(f"    User message length: {len(user_message_content)} chars")
+        logger.info(f"{'='*60}")
+
         # Prepend language instruction to ensure LLM responds in user's language
         lang_name = "German" if user_language == "de" else "English"
         language_instruction = f"IMPORTANT: You MUST respond in {lang_name} only.\n\n"
@@ -296,8 +302,9 @@ async def process_with_agents(
         # Track ALL function calls - agents can call multiple functions at once
         pending_function_calls: list[dict] = []  # Each: {tool_call_id, function_name, arguments}
         current_function_call: dict | None = None  # Currently accumulating function call
+        event_count = 0  # Track for progress logging
 
-        logger.debug("[MISTRAL] Starting stream processing...")
+        logger.info("📡 [STREAM] Starting stream processing...")
 
         with response as event_stream:
             # Capture conversation_id from first event (cookbook pattern line 138)
@@ -320,6 +327,11 @@ async def process_with_agents(
 
             # Process remaining events
             for event in event_stream:
+                event_count += 1
+                # Log progress every 50 events (to show system is alive during long streams)
+                if event_count % 50 == 0:
+                    logger.info(f"⏳ [STREAM] Progress: {event_count} events processed (agent: {current_agent_name})")
+
                 result = await _process_single_event(
                     event, websocket, full_response_parts, current_agent_name, conversation
                 )
@@ -328,8 +340,10 @@ async def process_with_agents(
                     current_agent_name = getattr(event.data, "next_agent_name", current_agent_name)
                     current_agent_name = current_agent_name.lower().replace(" ", "_").replace("legal_", "")
                 elif result == "done":
+                    logger.info(f"✅ [STREAM] Stream complete after {event_count} events")
                     break
                 elif result == "error":
+                    logger.error(f"❌ [STREAM] Error after {event_count} events")
                     return
                 elif isinstance(result, tuple) and result[0] == "function_call":
                     new_tool_call_id = result[1]
@@ -364,12 +378,21 @@ async def process_with_agents(
                 pending_function_calls.append(current_function_call)
                 logger.info(f"📦 [FUNC] Saved final function call: {current_function_call['function_name']}")
 
+        logger.info(
+            f"📡 [STREAM] Stream ended. Total events: {event_count}, Functions pending: {len(pending_function_calls)}"
+        )
+
         # Handle ALL pending function calls (Mistral requires response for EACH call)
         # Track if summary generation should be triggered
         trigger_summary_generation = False
         summary_case_data = None
 
         function_results: list[FunctionResultEntry] = []
+
+        if pending_function_calls:
+            logger.info(f"{'='*40}")
+            logger.info(f"🔧 [FUNC] Processing {len(pending_function_calls)} function call(s)...")
+            logger.info(f"{'='*40}")
 
         for func_call in pending_function_calls:
             tool_call_id = func_call["tool_call_id"]
@@ -499,6 +522,11 @@ async def process_with_agents(
 
         # Save AI message to database
         if full_response:
+            logger.info(f"{'='*60}")
+            logger.info(f"✅ [END] Message complete for conversation {conversation.id}")
+            logger.info(f"    Response length: {len(full_response)} chars, Agent: {current_agent_name}")
+            logger.info(f"{'='*60}")
+
             ai_message = Message(
                 conversation_id=conversation.id,
                 role=MessageRole.ASSISTANT,
