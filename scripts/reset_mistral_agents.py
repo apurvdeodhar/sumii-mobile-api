@@ -70,21 +70,14 @@ def main():
     for agent in agents:
         print(f"  - {agent.name} (ID: {agent.id})")
 
-    # Filter to only Sumii agents (by name pattern) - includes legacy names
+    # Filter to only Sumii agents (by name pattern)
     sumii_agent_names = [
-        # Current names
         "Legal Router Agent",
         "Legal Intake Agent",
         "Fact Completion Agent",
         "Reasoning Logic Agent",
         "Wrap-Up Agent",
         "Legal Summary Agent",
-        # Legacy names from old versions
-        "Legal Reasoning Agent",
-        "Reasoning Agent",
-        "Summary Agent",
-        "Intake Agent",
-        "Router Agent",
     ]
 
     sumii_agents = [a for a in agents if a.name in sumii_agent_names]
