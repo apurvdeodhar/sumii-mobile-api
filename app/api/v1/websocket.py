@@ -710,11 +710,17 @@ async def process_with_agents(
                 except Exception as e:
                     logger.error(f"❌ [MISTRAL] Function result append FAILED: {type(e).__name__}: {e}")
                     if "404" in str(e) or "not found" in str(e).lower() or "does not have a version" in str(e).lower():
-                        logger.warning(f"⚠️ [MISTRAL] Conversation {conv_id} is stale. Clearing and exiting.")
+                        logger.warning(
+                            f"⚠️ [MISTRAL] Conversation {conv_id} is stale. Clearing ID but continuing execution."
+                        )
                         conversation.mistral_conversation_id = None
                         await db.commit()
-                        return
-                    raise
+                        # Don't return - continue to process summary generation if triggered
+                        logger.info(
+                            "[MISTRAL] Skipping continuation stream, will process local functions (e.g. summary)"
+                        )
+                    else:
+                        raise
                 # Process continuation events
                 with continuation as cont_stream:
                     for cont_event in cont_stream:
