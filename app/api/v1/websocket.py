@@ -6,6 +6,7 @@ It uses Mistral's Conversations API with agent handoffs.
 
 import json
 import logging
+import time
 from datetime import datetime, timezone
 from uuid import UUID
 
@@ -690,59 +691,72 @@ async def process_with_agents(
                     logger.error(f"[SUMMARY] Raw args: {arguments[:200] if arguments else 'None'}")
 
             # Build function result for this call
+            logger.info(f"🔵 [DEBUG] Adding function result for: {function_name} (id: {tool_call_id})")
             function_results.append(
                 FunctionResultEntry(
                     tool_call_id=tool_call_id,
                     result=f"Function {function_name} executed successfully. Data collected.",
                 )
             )
+            logger.info(f"🔵 [DEBUG] function_results now has {len(function_results)} items")
 
         # Send ALL function results back to Mistral (if any)
         if function_results:
-            logger.info(f"📤 [FUNC] Sending {len(function_results)} function result(s) back to Mistral")
+            func_names = [fr.tool_call_id for fr in function_results]
+            logger.info(f"📤 [FUNC] Preparing to send {len(function_results)} function result(s) back to Mistral")
+            logger.info(f"📤 [FUNC] Function IDs: {func_names}")
+
             conv_id = conversation.mistral_conversation_id
             if conv_id:
+                send_start_time = time.time()
+                logger.info(f"⏱️ [TIMING] Starting append_stream at {send_start_time:.3f}")
+                logger.info(f"⏱️ [TIMING] Conversation ID: {conv_id}")
                 try:
-                    logger.debug(f"[FUNC] Calling append_stream with conversation_id={conv_id[:20]}...")
+                    logger.info(f"[FUNC] Calling append_stream with conversation_id={conv_id}...")
                     continuation = client.beta.conversations.append_stream(
                         conversation_id=conv_id,
                         inputs=function_results,  # Send ALL results at once
                     )
-                    logger.info("[FUNC] ✅ append_stream call succeeded, processing continuation events...")
+                    send_duration = time.time() - send_start_time
+                    logger.info(f"[FUNC] ✅ append_stream succeeded in {send_duration:.3f}s")
                 except Exception as e:
-                    logger.error(f"❌ [MISTRAL] Function result append FAILED: {type(e).__name__}: {e}")
+                    error_duration = time.time() - send_start_time
+                    logger.error(f"❌ [MISTRAL] append FAILED after {error_duration:.3f}s: {e}")
+                    logger.error(f"❌ [MISTRAL] Full error details: {repr(e)}")
                     if "404" in str(e) or "not found" in str(e).lower() or "does not have a version" in str(e).lower():
-                        logger.warning(
-                            f"⚠️ [MISTRAL] Conversation {conv_id} is stale. Clearing ID but continuing execution."
-                        )
+                        logger.warning(f"⚠️ [MISTRAL] Conversation {conv_id} is stale/invalid. Clearing ID.")
+                        logger.warning(f"⚠️ [MISTRAL] Function results that failed to send: {func_names}")
                         conversation.mistral_conversation_id = None
                         await db.commit()
-                        # Don't return - continue to process summary generation if triggered
+                        # Set continuation to None so we don't try to process it
+                        continuation = None
                         logger.info(
-                            "[MISTRAL] Skipping continuation stream, will process local functions (e.g. summary)"
+                            "[MISTRAL] Skipping continuation stream due to 404, will process local functions if any"
                         )
                     else:
                         raise
-                # Process continuation events
-                with continuation as cont_stream:
-                    for cont_event in cont_stream:
-                        cont_result = await _process_single_event(
-                            cont_event,
-                            websocket,
-                            full_response_parts,
-                            current_agent_name,
-                            conversation,
-                            db,
-                            thinking_block,
-                            user_language,
-                        )
-                        if cont_result == "handoff":
-                            current_agent_name = getattr(cont_event.data, "next_agent_name", current_agent_name)
-                            current_agent_name = current_agent_name.lower().replace(" ", "_").replace("legal_", "")
-                        elif cont_result == "done":
-                            break
-                        elif cont_result == "error":
-                            return
+
+                # Process continuation events (only if we have a valid continuation)
+                if continuation:
+                    with continuation as cont_stream:
+                        for cont_event in cont_stream:
+                            cont_result = await _process_single_event(
+                                cont_event,
+                                websocket,
+                                full_response_parts,
+                                current_agent_name,
+                                conversation,
+                                db,
+                                thinking_block,
+                                user_language,
+                            )
+                            if cont_result == "handoff":
+                                current_agent_name = getattr(cont_event.data, "next_agent_name", current_agent_name)
+                                current_agent_name = current_agent_name.lower().replace(" ", "_").replace("legal_", "")
+                            elif cont_result == "done":
+                                break
+                            elif cont_result == "error":
+                                return
 
         # Combine response chunks
         full_response = "".join(full_response_parts)
