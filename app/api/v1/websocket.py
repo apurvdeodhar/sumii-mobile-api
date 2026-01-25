@@ -321,15 +321,9 @@ async def _process_single_event(
                 if len(str(arguments)) > 200
                 else f"[FUNCTION_CALL] Arguments: {arguments}"
             )
-            await websocket.send_json(
-                {
-                    "type": "function_call",
-                    "tool_call_id": tool_call_id,
-                    "function": function_name,
-                    "arguments": arguments,
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
-                }
-            )
+            # NOTE: We don't send function_call events to client anymore
+            # Arguments stream in chunks (40+ events), flooding the client
+            # Thinking blocks now use dedicated WS events instead
             # Return special indicator for function call handling
             return ("function_call", tool_call_id, function_name, arguments)
 
