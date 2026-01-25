@@ -525,12 +525,19 @@ async def process_with_agents(
                     thinking_block,
                     user_language,
                 )
+                # DEBUG: Log what result we got
+                if result == "done":
+                    logger.info("🔵 [DEBUG] Got result='done', will break from loop")
+                elif result is not None:
+                    logger.debug(f"[DEBUG] Result type: {type(result)}, value: {str(result)[:100]}")
+
                 if result == "handoff":
                     # Update current agent from handoff
                     current_agent_name = getattr(event.data, "next_agent_name", current_agent_name)
                     current_agent_name = current_agent_name.lower().replace(" ", "_").replace("legal_", "")
                 elif result == "done":
                     logger.info(f"✅ [STREAM] Stream complete after {event_count} events")
+                    logger.info("🔵 [DEBUG] About to break from event loop")
                     break
                 elif result == "error":
                     logger.error(f"❌ [STREAM] Error after {event_count} events")
@@ -579,6 +586,7 @@ async def process_with_agents(
                     f"(args: {len(current_function_call['arguments'])} chars)"
                 )
 
+        logger.info("🔵 [DEBUG] Exited the with block (stream closed)")
         logger.info(
             f"📡 [STREAM] Stream ended. Total events: {event_count}, Functions pending: {len(pending_function_calls)}"
         )
