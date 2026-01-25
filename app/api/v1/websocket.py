@@ -4,10 +4,13 @@ This endpoint handles real-time chat between users and AI agents.
 It uses Mistral's Conversations API with agent handoffs.
 """
 
+import asyncio
 import json
 import logging
 import time
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
+from typing import Any
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect, status
@@ -509,8 +512,47 @@ async def process_with_agents(
                     "arguments": first_result[3] or "",
                 }
 
-            # Process remaining events
-            for event in event_stream:
+            # Process remaining events using async-safe iteration
+            # CRITICAL: next() is a BLOCKING call that blocks the event loop!
+            # We run it in executor with timeout to prevent hangs after ResponseDoneEvent
+            stream_done = False
+            stream_iter = iter(event_stream)
+            executor = ThreadPoolExecutor(max_workers=1)
+
+            async def get_next_event() -> tuple[Any | None, bool, bool]:
+                """Get next event from stream in executor with timeout.
+                Returns (event, exhausted, timed_out)"""
+                loop = asyncio.get_event_loop()
+
+                def _next():
+                    try:
+                        return next(stream_iter), False
+                    except StopIteration:
+                        return None, True
+
+                try:
+                    event, exhausted = await asyncio.wait_for(
+                        loop.run_in_executor(executor, _next),
+                        timeout=30.0,  # 30s timeout per event
+                    )
+                    return event, exhausted, False
+                except asyncio.TimeoutError:
+                    return None, False, True
+
+            while not stream_done:
+                event, exhausted, timed_out = await get_next_event()
+
+                if exhausted:
+                    logger.info("🔵 [TRACE] Stream iterator exhausted (StopIteration)")
+                    break
+
+                if timed_out:
+                    logger.warning("⚠️ [TIMEOUT] Stream next() timed out after 30s")
+                    break
+
+                if event is None:
+                    break
+
                 logger.info(f"⚡ [TRACE] Got event #{event_count + 1} from stream")
                 event_count += 1
                 # Log progress every 50 events (to show system is alive during long streams)
@@ -528,20 +570,17 @@ async def process_with_agents(
                     user_language,
                 )
                 logger.debug(f"🔴 [TRACE] _process_single_event returned: {result}")
-                # DEBUG: Log what result we got
-                if result == "done":
-                    logger.info("🔵 [DEBUG] Got result='done', will break from loop")
-                elif result is not None:
-                    logger.debug(f"[DEBUG] Result type: {type(result)}, value: {str(result)[:100]}")
 
-                if result == "handoff":
+                # Check result IMMEDIATELY after processing - before trying to get next event
+                if result == "done":
+                    logger.info(f"✅ [STREAM] Stream complete after {event_count} events")
+                    logger.info("🔵 [DEBUG] Got result='done', breaking NOW (before next iteration)")
+                    stream_done = True
+                    # Continue to process any pending function call before breaking
+                elif result == "handoff":
                     # Update current agent from handoff
                     current_agent_name = getattr(event.data, "next_agent_name", current_agent_name)
                     current_agent_name = current_agent_name.lower().replace(" ", "_").replace("legal_", "")
-                elif result == "done":
-                    logger.info(f"✅ [STREAM] Stream complete after {event_count} events")
-                    logger.info("🔵 [DEBUG] About to break from event loop")
-                    break
                 elif result == "error":
                     logger.error(f"❌ [STREAM] Error after {event_count} events")
                     return
