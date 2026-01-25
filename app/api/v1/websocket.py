@@ -511,6 +511,7 @@ async def process_with_agents(
 
             # Process remaining events
             for event in event_stream:
+                logger.info(f"⚡ [TRACE] Got event #{event_count + 1} from stream")
                 event_count += 1
                 # Log progress every 50 events (to show system is alive during long streams)
                 if event_count % 50 == 0:
@@ -526,6 +527,7 @@ async def process_with_agents(
                     thinking_block,
                     user_language,
                 )
+                logger.debug(f"🔴 [TRACE] _process_single_event returned: {result}")
                 # DEBUG: Log what result we got
                 if result == "done":
                     logger.info("🔵 [DEBUG] Got result='done', will break from loop")
