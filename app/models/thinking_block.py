@@ -40,6 +40,8 @@ class ThinkingBlock(Base):
     # Agent progress state
     current_agent = Column(String(50), nullable=True)
     completed_agents = Column(JSONB, default=list, nullable=False)
+    # Progressive agent steps with titles: [{agentId, title, status, timestamp}]
+    steps = Column(JSONB, default=list, nullable=False)
     is_generating_summary = Column(Boolean, default=False, nullable=False)
     is_live = Column(Boolean, default=True, nullable=False)
 

@@ -26,7 +26,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.database import get_db
-from app.models import Conversation, Document, Message, MessageRole, User
+from app.models import Conversation, Document, Message, MessageRole, ThinkingBlock, User
 from app.services.agents import MistralAgentsService, get_mistral_agents_service
 from app.utils.security import verify_token_ws
 
@@ -35,8 +35,143 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
+def get_thinking_description(agent: str, lang: str = "de") -> str:
+    """Get a human-readable description for the thinking bubble based on agent name.
+
+    Args:
+        agent: The normalized agent name (e.g., 'router', 'intake', 'reasoning')
+        lang: Language code ('de' or 'en')
+
+    Returns:
+        Localized description string for the ThinkingBubble preview
+    """
+    descriptions = {
+        "de": {
+            "router": "Analysiere Ihre Anfrage...",
+            "intake": "Erfasse die relevanten Fakten...",
+            "fact_completion": "Sammle weitere Details...",
+            "reasoning": "Wende rechtliche Analyse an...",
+            "wrapup": "Bereite Zusammenfassung vor...",
+            "wrap_up": "Bereite Zusammenfassung vor...",
+            "summary": "Erstelle Ihre Fallzusammenfassung...",
+        },
+        "en": {
+            "router": "Analyzing your request...",
+            "intake": "Collecting relevant facts...",
+            "fact_completion": "Gathering additional details...",
+            "reasoning": "Applying legal analysis...",
+            "wrapup": "Preparing wrap-up...",
+            "wrap_up": "Preparing wrap-up...",
+            "summary": "Creating your case summary...",
+        },
+    }
+    lang_dict = descriptions.get(lang, descriptions["de"])
+    agent_lower = agent.lower()
+    for key, value in lang_dict.items():
+        if key in agent_lower:
+            return value
+    return "Verarbeite..." if lang == "de" else "Processing..."
+
+
+def normalize_agent_id(agent: str) -> str:
+    """Normalize agent name to standard agent_id for steps tracking."""
+    lower = agent.lower().replace("_", "").replace("agent", "")
+    if "router" in lower:
+        return "router"
+    if "intake" in lower:
+        return "intake"
+    if "fact" in lower or "completion" in lower:
+        return "fact_completion"
+    if "reasoning" in lower or "logic" in lower:
+        return "reasoning"
+    if "wrap" in lower or "up" in lower:
+        return "wrapup"
+    if "summary" in lower:
+        return "summary"
+    return "router"
+
+
+async def create_thinking_block(db: AsyncSession, conversation_id: UUID, agent: str, title: str) -> ThinkingBlock:
+    """Create a new ThinkingBlock and persist to database."""
+    agent_id = normalize_agent_id(agent)
+    thinking_block = ThinkingBlock(
+        conversation_id=conversation_id,
+        current_agent=agent,
+        completed_agents=[],
+        steps=[
+            {
+                "agent_id": agent_id,
+                "title": title,
+                "status": "active",
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            }
+        ],
+        is_generating_summary=False,
+        is_live=True,
+    )
+    db.add(thinking_block)
+    await db.commit()
+    await db.refresh(thinking_block)
+    return thinking_block
+
+
+async def add_or_update_step(
+    db: AsyncSession, thinking_block: ThinkingBlock, agent: str, title: str, status: str = "active"
+) -> None:
+    """Add or update a step in the ThinkingBlock."""
+    agent_id = normalize_agent_id(agent)
+    steps = list(thinking_block.steps) if thinking_block.steps else []
+
+    # Check if step for this agent exists
+    existing_idx = next((i for i, s in enumerate(steps) if s.get("agent_id") == agent_id), None)
+
+    step_data = {
+        "agent_id": agent_id,
+        "title": title,
+        "status": status,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+
+    if existing_idx is not None:
+        steps[existing_idx] = step_data
+    else:
+        steps.append(step_data)
+
+    thinking_block.steps = steps
+    thinking_block.current_agent = agent
+    await db.commit()
+
+
+async def complete_agent_step(db: AsyncSession, thinking_block: ThinkingBlock, agent: str) -> None:
+    """Mark an agent's step as complete."""
+    agent_id = normalize_agent_id(agent)
+    steps = list(thinking_block.steps) if thinking_block.steps else []
+
+    for step in steps:
+        if step.get("agent_id") == agent_id:
+            step["status"] = "complete"
+            step["timestamp"] = datetime.now(timezone.utc).isoformat()
+
+    thinking_block.steps = steps
+
+    # Also add to completed_agents list
+    completed = list(thinking_block.completed_agents) if thinking_block.completed_agents else []
+    if agent not in completed:
+        completed.append(agent)
+    thinking_block.completed_agents = completed
+
+    await db.commit()
+
+
 async def _process_single_event(
-    event, websocket: WebSocket, full_response_parts: list, current_agent_name: str, conversation=None
+    event,
+    websocket: WebSocket,
+    full_response_parts: list,
+    current_agent_name: str,
+    conversation=None,
+    db: AsyncSession | None = None,
+    thinking_block: ThinkingBlock | None = None,
+    user_language: str = "de",
 ) -> str | tuple[str, str | None, str, str] | None:
     """Process a single Mistral event and return action indicator.
 
@@ -99,6 +234,20 @@ async def _process_single_event(
                     "timestamp": datetime.now(timezone.utc).isoformat(),
                 }
             )
+            # Send thinking_chunk for ThinkingBubble inline streaming
+            next_thinking_title = get_thinking_description(next_agent_normalized, user_language)
+            await websocket.send_json(
+                {
+                    "type": "thinking_chunk",
+                    "content": next_thinking_title,
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                }
+            )
+
+            # Update ThinkingBlock: complete old agent, add new agent step
+            if db and thinking_block:
+                await complete_agent_step(db, thinking_block, current_agent_name)
+                await add_or_update_step(db, thinking_block, next_agent_normalized, next_thinking_title, "active")
 
             # Send reasoning_started event when handoff to reasoning logic agent
             if "reasoning" in next_agent_normalized and "logic" in next_agent_normalized:
@@ -276,6 +425,19 @@ async def process_with_agents(
         }
         await websocket.send_json(agent_start_payload)
 
+        # Send thinking_chunk for ThinkingBubble inline streaming
+        thinking_title = get_thinking_description(current_agent_name, user_language)
+        await websocket.send_json(
+            {
+                "type": "thinking_chunk",
+                "content": thinking_title,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            }
+        )
+
+        # Create ThinkingBlock in database and persist first step
+        thinking_block = await create_thinking_block(db, conversation.id, current_agent_name, thinking_title)
+
         # Check if we have an existing Mistral conversation to continue
         existing_conv_id = conversation.mistral_conversation_id
         logger.debug(f"[MISTRAL] Conversation {conversation.id}: existing_conv_id={existing_conv_id}")
@@ -336,7 +498,14 @@ async def process_with_agents(
 
             # Process first event
             first_result = await _process_single_event(
-                first_event, websocket, full_response_parts, current_agent_name, conversation
+                first_event,
+                websocket,
+                full_response_parts,
+                current_agent_name,
+                conversation,
+                db,
+                thinking_block,
+                user_language,
             )
             if isinstance(first_result, tuple) and first_result[0] == "function_call":
                 current_function_call = {
@@ -353,7 +522,14 @@ async def process_with_agents(
                     logger.info(f"⏳ [STREAM] Progress: {event_count} events processed (agent: {current_agent_name})")
 
                 result = await _process_single_event(
-                    event, websocket, full_response_parts, current_agent_name, conversation
+                    event,
+                    websocket,
+                    full_response_parts,
+                    current_agent_name,
+                    conversation,
+                    db,
+                    thinking_block,
+                    user_language,
                 )
                 if result == "handoff":
                     # Update current agent from handoff
@@ -480,6 +656,7 @@ async def process_with_agents(
             # Summary Agent: Handle generate_summary
             elif function_name == "generate_summary":
                 logger.info(f"📝 AUTO-TRIGGER: Summary generation for conversation {conversation.id}")
+                logger.debug(f"[SUMMARY] Arguments length: {len(arguments) if arguments else 0} chars")
 
                 await websocket.send_json(
                     {
@@ -488,13 +665,15 @@ async def process_with_agents(
                         "timestamp": datetime.now(timezone.utc).isoformat(),
                     }
                 )
+                logger.debug("[SUMMARY] Sent summary_generating event to client")
 
                 try:
                     summary_case_data = json.loads(arguments) if arguments else {}
                     trigger_summary_generation = True
-                    logger.info(f"Summary data keys: {list(summary_case_data.keys())}")
+                    logger.info(f"[SUMMARY] ✅ Data parsed, keys: {list(summary_case_data.keys())}")
+                    logger.info(f"[SUMMARY] trigger_summary_generation={trigger_summary_generation}")
                 except json.JSONDecodeError as e:
-                    logger.error(f"Failed to parse summary arguments: {e}")
+                    logger.error(f"❌ [SUMMARY] Failed to parse summary arguments: {e}")
                     logger.error(f"[SUMMARY] Raw args: {arguments[:200] if arguments else 'None'}")
 
             # Build function result for this call
@@ -511,10 +690,12 @@ async def process_with_agents(
             conv_id = conversation.mistral_conversation_id
             if conv_id:
                 try:
+                    logger.debug(f"[FUNC] Calling append_stream with conversation_id={conv_id[:20]}...")
                     continuation = client.beta.conversations.append_stream(
                         conversation_id=conv_id,
                         inputs=function_results,  # Send ALL results at once
                     )
+                    logger.info("[FUNC] ✅ append_stream call succeeded, processing continuation events...")
                 except Exception as e:
                     logger.error(f"❌ [MISTRAL] Function result append FAILED: {type(e).__name__}: {e}")
                     if "404" in str(e) or "not found" in str(e).lower() or "does not have a version" in str(e).lower():
@@ -527,7 +708,14 @@ async def process_with_agents(
                 with continuation as cont_stream:
                     for cont_event in cont_stream:
                         cont_result = await _process_single_event(
-                            cont_event, websocket, full_response_parts, current_agent_name, conversation
+                            cont_event,
+                            websocket,
+                            full_response_parts,
+                            current_agent_name,
+                            conversation,
+                            db,
+                            thinking_block,
+                            user_language,
                         )
                         if cont_result == "handoff":
                             current_agent_name = getattr(cont_event.data, "next_agent_name", current_agent_name)
@@ -582,6 +770,19 @@ async def process_with_agents(
                 from app.utils.reference_number import generate_sumii_reference_number
 
                 logger.info(f"📄 Generating summary for conversation {conversation.id}")
+
+                # Add summary step to ThinkingBlock
+                if thinking_block:
+                    summary_title = get_thinking_description("summary", user_language)
+                    await add_or_update_step(db, thinking_block, "summary", summary_title, "active")
+                    # Send thinking_chunk for UI update
+                    await websocket.send_json(
+                        {
+                            "type": "thinking_chunk",
+                            "content": summary_title,
+                            "timestamp": datetime.now(timezone.utc).isoformat(),
+                        }
+                    )
 
                 # Check if summary already exists
                 existing_summary = await db.execute(select(Summary).where(Summary.conversation_id == conversation.id))
@@ -661,6 +862,13 @@ async def process_with_agents(
                         }
                     )
                     logger.info(f"✅ Summary {summary_id} created and sent to client")
+
+                    # Complete summary step and mark ThinkingBlock as finished
+                    if thinking_block:
+                        await complete_agent_step(db, thinking_block, "summary")
+                        thinking_block.is_live = False
+                        thinking_block.completed_at = datetime.now(timezone.utc)
+                        await db.commit()
 
             except Exception as e:
                 logger.error(f"Failed to auto-generate summary: {e}")

@@ -20,6 +20,7 @@ from app.models.lawyer_connection import LawyerConnection
 from app.models.message import Message
 from app.models.notification import Notification
 from app.models.summary import Summary
+from app.models.thinking_block import ThinkingBlock
 from app.models.user import User
 from app.schemas.conversation import ConversationResponse, MessageResponse
 from app.schemas.document import DocumentResponse
@@ -27,6 +28,7 @@ from app.schemas.lawyer_connection import LawyerConnectionResponse
 from app.schemas.notification import NotificationResponse
 from app.schemas.summary import SummaryResponse
 from app.schemas.sync import DeletedIds, SyncRequest, SyncResponse
+from app.schemas.thinking_block import ThinkingBlockResponse
 from app.users import current_active_user
 
 router = APIRouter()
@@ -140,6 +142,20 @@ async def sync_data(
     )
     lawyer_connections = list(lawyer_connections_result.scalars().all())
 
+    # Query thinking_blocks updated since last sync
+    thinking_blocks_result = await db.execute(
+        select(ThinkingBlock)
+        .join(Conversation, ThinkingBlock.conversation_id == Conversation.id)
+        .where(
+            and_(
+                Conversation.user_id == current_user.id,
+                ThinkingBlock.created_at > last_synced_at,
+            )
+        )
+        .order_by(ThinkingBlock.created_at.desc())
+    )
+    thinking_blocks = list(thinking_blocks_result.scalars().all())
+
     # TODO: Query deleted records (requires soft delete implementation)
     deleted_ids = DeletedIds()
 
@@ -150,6 +166,7 @@ async def sync_data(
         summaries=[SummaryResponse.model_validate(s) for s in summaries],
         notifications=[NotificationResponse.model_validate(n) for n in notifications],
         lawyer_connections=[LawyerConnectionResponse.model_validate(lc) for lc in lawyer_connections],
+        thinking_blocks=[ThinkingBlockResponse.model_validate(tb) for tb in thinking_blocks],
         deleted_ids=deleted_ids,
         server_time=server_time,
         is_full_sync=is_full_sync,
