@@ -549,20 +549,28 @@ async def process_with_agents(
                     # Check if this is a NEW function call or continuation of current one
                     if current_function_call is None:
                         # First function call
+                        logger.debug(
+                            f"[FUNC] NEW function call: {new_function_name}, args length: {len(new_arguments)}"
+                        )
                         current_function_call = {
                             "tool_call_id": new_tool_call_id,
                             "function_name": new_function_name,
                             "arguments": new_arguments,
                         }
-                    elif new_tool_call_id == current_function_call["tool_call_id"]:
-                        # Same tool_call_id = continuation, accumulate arguments
+                    elif current_function_call["tool_call_id"] == new_tool_call_id:
+                        # Continuing SAME function call - append arguments
                         current_function_call["arguments"] += new_arguments
+                        logger.debug(
+                            f"[FUNC] Accumulating {new_function_name} args: "
+                            f"total {len(current_function_call['arguments'])} chars"
+                        )
                     else:
-                        # Different tool_call_id = new function call
-                        # Save the completed previous call
+                        # Different function - save old one, start new one
+                        logger.info(
+                            f"📦 [FUNC] Saved function call: {current_function_call['function_name']} "
+                            f"(args: {len(current_function_call['arguments'])} chars)"
+                        )
                         pending_function_calls.append(current_function_call)
-                        logger.info(f"📦 [FUNC] Saved function call: {current_function_call['function_name']}")
-                        # Start new call
                         current_function_call = {
                             "tool_call_id": new_tool_call_id,
                             "function_name": new_function_name,
@@ -572,7 +580,10 @@ async def process_with_agents(
             # Don't forget the last function call
             if current_function_call:
                 pending_function_calls.append(current_function_call)
-                logger.info(f"📦 [FUNC] Saved final function call: {current_function_call['function_name']}")
+                logger.info(
+                    f"📦 [FUNC] Saved final function call: {current_function_call['function_name']} "
+                    f"(args: {len(current_function_call['arguments'])} chars)"
+                )
 
         logger.info(
             f"📡 [STREAM] Stream ended. Total events: {event_count}, Functions pending: {len(pending_function_calls)}"
