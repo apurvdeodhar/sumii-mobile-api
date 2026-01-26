@@ -17,7 +17,7 @@ from sqlalchemy.orm import selectinload
 
 from app.database import get_db
 from app.models import Conversation, Summary, User
-from app.models.conversation import CaseStrength, LegalArea, Urgency
+from app.models.conversation import LegalArea, Urgency
 from app.schemas.summary import SummaryCreate, SummaryResponse, SummaryUpdate
 from app.services.agents import MistralAgentsService, get_mistral_agents_service
 
@@ -108,17 +108,13 @@ async def create_summary(
         markdown_content, metadata, structured_data = await summary_service.generate_summary(conversation, db)
 
         # Create summary record (will get ID after commit)
+        # Note: case_strength removed - lawyers assess case strength, not Sumii
         summary = Summary(
             conversation_id=conversation.id,
             user_id=current_user.id,
             markdown_content=markdown_content,
             legal_area=LegalArea(
                 metadata.get("legal_area", conversation.legal_area.value if conversation.legal_area else "Mietrecht")
-            ),
-            case_strength=CaseStrength(
-                metadata.get(
-                    "case_strength", conversation.case_strength.value if conversation.case_strength else "medium"
-                )
             ),
             urgency=Urgency(metadata.get("urgency", conversation.urgency.value if conversation.urgency else "weeks")),
             pdf_s3_key="",  # Will be set after upload
@@ -419,7 +415,8 @@ async def update_summary(
 ) -> SummaryResponse:
     """Update summary metadata
 
-    Allows updating legal_area, case_strength, and urgency fields.
+    Allows updating legal_area and urgency fields.
+    Note: case_strength removed - lawyers assess case strength, not Sumii.
 
     Args:
         summary_id: UUID of the summary
@@ -453,8 +450,7 @@ async def update_summary(
     # Update fields if provided
     if summary_data.legal_area is not None:
         summary.legal_area = summary_data.legal_area
-    if summary_data.case_strength is not None:
-        summary.case_strength = summary_data.case_strength
+    # Note: case_strength removed - lawyers assess case strength, not Sumii
     if summary_data.urgency is not None:
         summary.urgency = summary_data.urgency
 
@@ -602,12 +598,10 @@ async def regenerate_summary(
         markdown_content, metadata, structured_data = await summary_service.generate_summary(conversation, db)
 
         # Update summary record
+        # Note: case_strength removed - lawyers assess case strength, not Sumii
         summary.markdown_content = markdown_content
         summary.legal_area = LegalArea(
             metadata.get("legal_area", summary.legal_area.value if summary.legal_area else "Mietrecht")
-        )
-        summary.case_strength = CaseStrength(
-            metadata.get("case_strength", summary.case_strength.value if summary.case_strength else "medium")
         )
         summary.urgency = Urgency(metadata.get("urgency", summary.urgency.value if summary.urgency else "weeks"))
 
@@ -706,7 +700,7 @@ def _summary_to_response(summary: Summary, storage_service: StorageService) -> S
         pdf_url=pdf_url,
         markdown_content=summary.markdown_content or "",
         legal_area=summary.legal_area,
-        case_strength=summary.case_strength,
+        # Note: case_strength removed - lawyers assess case strength, not Sumii
         urgency=summary.urgency,
         created_at=summary.created_at,
     )

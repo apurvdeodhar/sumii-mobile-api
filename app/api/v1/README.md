@@ -216,3 +216,89 @@ Error format:
   "detail": "Error message"
 }
 ```
+
+---
+
+## Bug Report: WebSocket Stream Hang & Sequential DB Error (2026-01-25)
+
+### Executive Summary
+A critical bug in the WebSocket streaming caused the chat to hang indefinitely after receiving `ResponseDoneEvent`. This masked a secondary database validation error that only became visible after fixing the stream issue.
+
+### Issue #1: Stream Hang (Root Cause)
+
+**Symptom:** Chat would receive AI responses, but after `ResponseDoneEvent`, nothing happened for 3+ minutes before timing out.
+
+**Root Cause:** The Mistral SDK's `ConversationsStreamResponse` iterator is **synchronous** but was being called from within an async context:
+
+```python
+# BROKEN CODE
+async for event in stream:  # ❌ Sync iterator in async context
+    ...
+```
+
+The `next(stream_iter)` call blocked the entire asyncio event loop, preventing:
+- The `stream_done = True` check from happening
+- The `break` statement from executing
+- Any downstream code from running
+
+**Fix Applied:** Wrapped the synchronous iterator call in `asyncio.run_in_executor()`:
+
+```python
+# FIXED CODE
+async def get_next_event():
+    loop = asyncio.get_event_loop()
+    def _next():
+        try:
+            return next(stream_iter), False
+        except StopIteration:
+            return None, True
+    try:
+        event, exhausted = await asyncio.wait_for(
+            loop.run_in_executor(executor, _next),
+            timeout=30.0
+        )
+        return event, exhausted, False
+    except asyncio.TimeoutError:
+        return None, False, True
+```
+
+### Issue #2: Database Validation Error (Sequential)
+
+**Symptom:** After fixing the stream hang, the flow reached `generate_summary` → PDF generation → **database insert** → `IntegrityError: null value in column "case_strength"`.
+
+**Root Cause:** The `summaries` table had `case_strength` as NOT NULL, but `case_strength` was intentionally removed from the summary generation logic (Sumii doesn't make legal judgments, lawyers do).
+
+**Fix Applied:**
+1. Migration `0c8d9e1f2a3b` to drop `case_strength` column from `summaries` table
+2. Updated `Summary` model, schemas, and API endpoints
+
+### Why Wasn't the DB Error Visible Earlier?
+
+The code **literally never reached the database insert**. The stream was hanging BEFORE the function call processing happened:
+
+```
+🏁 [STREAM] ResponseDoneEvent received - stream complete!
+# Then... SILENCE for 3+ minutes. No function processing, no DB errors.
+```
+
+Only after the executor fix did the flow continue to:
+```
+📦 [FUNC] Saved final function call: generate_summary
+🔧 [FUNC] Processing: generate_summary
+ERROR: null value in column "case_strength"...
+```
+
+### Lessons Learned
+
+1. **Sync-in-async is dangerous**: Always verify that iterators are truly async before using `async for`
+2. **Sequential bugs mask each other**: First bug prevented second bug from ever executing
+3. **Add more logging at transition points**: Explicit logs after each major phase help identify where hangs occur
+4. **Test the full flow**: Unit tests that mock the stream don't catch sync/async issues
+
+### Files Modified
+
+- `app/api/v1/websocket.py` - Executor-based stream processing
+- `app/models/summary.py` - Removed `case_strength` column
+- `app/schemas/summary.py` - Removed `case_strength` from schemas
+- `app/api/v1/summaries.py` - Removed `case_strength` from API endpoints
+- `alembic/versions/0c8d9e1f2a3b_*.py` - Migration to drop column

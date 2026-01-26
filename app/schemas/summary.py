@@ -5,7 +5,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict
 
-from app.models.conversation import CaseStrength, LegalArea, Urgency
+from app.models.conversation import LegalArea, Urgency
 
 
 class SummaryCreate(BaseModel):
@@ -18,10 +18,10 @@ class SummaryUpdate(BaseModel):
     """Summary update request schema
 
     All fields are optional - only provided fields will be updated.
+    Note: case_strength removed - lawyers assess case strength, not Sumii.
     """
 
     legal_area: LegalArea | None = None
-    case_strength: CaseStrength | None = None
     urgency: Urgency | None = None
 
 
@@ -40,7 +40,7 @@ class SummaryResponse(BaseModel):
     pdf_url: str  # Pre-signed URL for PDF download (expires after 7 days)
     markdown_content: str  # Full markdown text (also stored in S3)
     legal_area: LegalArea
-    case_strength: CaseStrength
+    # Note: case_strength removed - lawyers assess case strength, not Sumii
     urgency: Urgency
     created_at: datetime
 
