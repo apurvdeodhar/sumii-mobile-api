@@ -778,7 +778,12 @@ async def process_with_agents(
                         raise
 
                 # Process continuation events (only if we have a valid continuation)
+                # CRITICAL: Must also handle function calls in continuation stream!
+                # The summary_agent calls generate_summary here, and we need to accumulate those calls.
                 if continuation:
+                    cont_function_call: dict | None = None
+                    cont_pending_calls: list[dict] = []
+
                     with continuation as cont_stream:
                         for cont_event in cont_stream:
                             cont_result = await _process_single_event(
@@ -798,6 +803,74 @@ async def process_with_agents(
                                 break
                             elif cont_result == "error":
                                 return
+                            elif isinstance(cont_result, tuple) and cont_result[0] == "function_call":
+                                # Handle function calls in continuation stream (same logic as main stream)
+                                new_tool_call_id = cont_result[1]
+                                new_function_name = cont_result[2]
+                                new_arguments = cont_result[3] or ""
+
+                                if cont_function_call is None:
+                                    logger.debug(f"[CONT_FUNC] NEW continuation function call: {new_function_name}")
+                                    cont_function_call = {
+                                        "tool_call_id": new_tool_call_id,
+                                        "function_name": new_function_name,
+                                        "arguments": new_arguments,
+                                    }
+                                elif cont_function_call["tool_call_id"] == new_tool_call_id:
+                                    # Continuing SAME function call - append arguments
+                                    cont_function_call["arguments"] += new_arguments
+                                else:
+                                    # Different function - save old one, start new one
+                                    logger.info(
+                                        f"📦 [CONT_FUNC] Saved continuation function call: "
+                                        f"{cont_function_call['function_name']} "
+                                        f"(args: {len(cont_function_call['arguments'])} chars)"
+                                    )
+                                    cont_pending_calls.append(cont_function_call)
+                                    cont_function_call = {
+                                        "tool_call_id": new_tool_call_id,
+                                        "function_name": new_function_name,
+                                        "arguments": new_arguments,
+                                    }
+
+                    # Don't forget the last function call from continuation
+                    if cont_function_call:
+                        cont_pending_calls.append(cont_function_call)
+                        logger.info(
+                            f"📦 [CONT_FUNC] Saved final continuation function call: "
+                            f"{cont_function_call['function_name']} "
+                            f"(args: {len(cont_function_call['arguments'])} chars)"
+                        )
+
+                    # Process continuation function calls (especially generate_summary!)
+                    if cont_pending_calls:
+                        logger.info(
+                            f"🔧 [CONT_FUNC] Processing {len(cont_pending_calls)} continuation function call(s)"
+                        )
+
+                        for func_call in cont_pending_calls:
+                            function_name = func_call["function_name"]
+                            arguments = func_call["arguments"]
+
+                            logger.info(f"🔧 [CONT_FUNC] Processing: {function_name}")
+
+                            if function_name == "generate_summary":
+                                logger.info("📝 [CONT_FUNC] AUTO-TRIGGER: Summary generation from continuation stream")
+                                await websocket.send_json(
+                                    {
+                                        "type": "summary_generating",
+                                        "conversation_id": str(conversation.id),
+                                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                                    }
+                                )
+                                try:
+                                    summary_case_data = json.loads(arguments) if arguments else {}
+                                    trigger_summary_generation = True
+                                    logger.info(
+                                        f"[CONT_FUNC] ✅ Summary data parsed, keys: {list(summary_case_data.keys())}"
+                                    )
+                                except json.JSONDecodeError as e:
+                                    logger.error(f"❌ [CONT_FUNC] Failed to parse summary arguments: {e}")
 
         # Combine response chunks
         full_response = "".join(full_response_parts)
