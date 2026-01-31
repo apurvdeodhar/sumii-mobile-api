@@ -943,7 +943,7 @@ async def process_with_agents(
                     reference_number = generate_sumii_reference_number(summary_id)
 
                     # Get markdown from case_data or generate from conversation
-                    markdown_content = summary_case_data.get("markdown_summary", "")
+                    markdown_content = summary_case_data.get("markdown_content", "")
                     if not markdown_content:
                         markdown_content = (
                             f"# Fallzusammenfassung\n\n"
@@ -998,13 +998,14 @@ async def process_with_agents(
                     await db.refresh(new_summary)
 
                     # Send summary_ready event via WebSocket
+                    # Use camelCase keys to match mobile app interface (SummaryReadyEvent)
                     await websocket.send_json(
                         {
                             "type": "summary_ready",
-                            "summary_id": str(new_summary.id),
-                            "reference_number": new_summary.reference_number,
-                            "conversation_id": str(conversation.id),
-                            "pdf_url": pdf_url,
+                            "summaryId": str(new_summary.id),
+                            "referenceNumber": new_summary.reference_number,
+                            "conversationId": str(conversation.id),
+                            "pdfUrl": pdf_url,
                             "timestamp": datetime.now(timezone.utc).isoformat(),
                         }
                     )

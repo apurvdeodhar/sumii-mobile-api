@@ -302,3 +302,81 @@ ERROR: null value in column "case_strength"...
 - `app/schemas/summary.py` - Removed `case_strength` from schemas
 - `app/api/v1/summaries.py` - Removed `case_strength` from API endpoints
 - `alembic/versions/0c8d9e1f2a3b_*.py` - Migration to drop column
+
+---
+
+## Bug Fix: Summary Generation Issues (2026-01-31)
+
+### Executive Summary
+
+Fixed multiple issues preventing summaries from rendering properly in the mobile app.
+
+### Issue #1: Wrong Key Name for Markdown Content
+
+**Symptom:** Mobile app displayed raw JSON instead of formatted markdown.
+
+**Root Cause:** The code was looking for `markdown_summary` but the agent returned `markdown_content`:
+
+```python
+# BROKEN CODE
+markdown_content = summary_case_data.get("markdown_summary", "")  # Wrong key!
+```
+
+**Fix Applied:**
+
+```python
+# FIXED CODE (websocket.py line 946)
+markdown_content = summary_case_data.get("markdown_content", "")
+```
+
+### Issue #2: Snake_case vs CamelCase in WebSocket Events
+
+**Symptom:** Mobile received `summaryId: undefined` from `summary_ready` event.
+
+**Root Cause:** Backend sent snake_case keys but mobile TypeScript interface expected camelCase:
+
+```json
+// Backend sent (snake_case)
+{"type": "summary_ready", "summary_id": "...", "reference_number": "..."}
+
+// Mobile expected (camelCase)
+interface SummaryReadyEvent {
+  summaryId: string;
+  referenceNumber: string;
+}
+```
+
+**Fix Applied:** Changed all keys in `summary_ready` event to camelCase:
+
+```python
+await websocket.send_json({
+    "type": "summary_ready",
+    "summaryId": str(new_summary.id),
+    "referenceNumber": new_summary.reference_number,
+    "conversationId": str(conversation.id),
+    "pdfUrl": pdf_url,
+    "timestamp": datetime.now(timezone.utc).isoformat(),
+})
+```
+
+### Issue #3: Continuation Stream Function Calls Not Handled
+
+**Symptom:** Summary agent's `generate_summary` function call was never processed when it came through the continuation stream.
+
+**Root Cause:** The continuation stream handler only looked for `markdown_summary` in `ResponseDoneEvent.output_text`, but function calls like `generate_summary` arrive through the streaming events themselves.
+
+**Fix Applied:** Added function call extraction from continuation stream events, mirroring the main stream handler:
+
+```python
+# Extract function calls from the continuation stream
+if hasattr(event, 'delta') and hasattr(event.delta, 'tool_calls'):
+    for tool_call in event.delta.tool_calls:
+        # Save and process function call
+```
+
+### Files Modified
+
+- `app/api/v1/websocket.py`:
+  - Line 946: `markdown_summary` → `markdown_content`
+  - Lines 1001-1010: snake_case → camelCase in `summary_ready` event
+  - Added function call handling in continuation stream
