@@ -97,7 +97,10 @@ async def get_conversation(
     result = await db.execute(
         select(Conversation)
         .where(Conversation.id == conversation_id)
-        .options(selectinload(Conversation.messages))  # Eager load messages
+        .options(
+            selectinload(Conversation.messages),  # Eager load messages
+            selectinload(Conversation.thinking_steps),  # Eager load thinking steps
+        )
     )
     conversation = result.scalar_one_or_none()
 

@@ -6,6 +6,7 @@ from app.schemas.conversation import (
     ConversationUpdate,
     ConversationWithMessages,
     MessageResponse,
+    ThinkingStepsResponse,
 )
 from app.schemas.document import DocumentListResponse, DocumentResponse, DocumentUpload
 from app.schemas.lawyer_connection import (
@@ -56,6 +57,7 @@ __all__ = [
     "ConversationResponse",
     "ConversationWithMessages",
     "MessageResponse",
+    "ThinkingStepsResponse",
     # Document schemas
     "DocumentUpload",
     "DocumentResponse",

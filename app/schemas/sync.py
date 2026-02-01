@@ -10,7 +10,7 @@ from app.schemas.document import DocumentResponse
 from app.schemas.lawyer_connection import LawyerConnectionResponse
 from app.schemas.notification import NotificationResponse
 from app.schemas.summary import SummaryResponse
-from app.schemas.thinking_block import ThinkingBlockResponse
+from app.schemas.thinking_steps import ThinkingStepsResponse
 
 
 class SyncRequest(BaseModel):
@@ -28,7 +28,7 @@ class DeletedIds(BaseModel):
     summaries: list[UUID] = []
     notifications: list[UUID] = []
     lawyer_connections: list[UUID] = []
-    thinking_blocks: list[UUID] = []
+    thinking_steps: list[UUID] = []
 
 
 class SyncResponse(BaseModel):
@@ -41,7 +41,7 @@ class SyncResponse(BaseModel):
     summaries: list[SummaryResponse] = []
     notifications: list[NotificationResponse] = []
     lawyer_connections: list[LawyerConnectionResponse] = []
-    thinking_blocks: list[ThinkingBlockResponse] = []
+    thinking_steps: list[ThinkingStepsResponse] = []
 
     # Deleted record IDs
     deleted_ids: DeletedIds = Field(default_factory=DeletedIds)

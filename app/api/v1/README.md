@@ -214,6 +214,89 @@ ws.send(JSON.stringify({
 }));
 ```
 
+---
+
+## ThinkingSteps (Agent Visualization)
+
+ThinkingSteps track agent processing and enable per-message visualization in the mobile app.
+
+### Per-Message Pattern
+
+Each user message creates its own ThinkingSteps record via `message_id` foreign key:
+
+```
+User Message 1 (id: msg-001)
+    └── ThinkingSteps (message_id → msg-001)
+
+User Message 2 (id: msg-002)
+    └── ThinkingSteps (message_id → msg-002)
+```
+
+### Database Schema
+
+```sql
+CREATE TABLE thinking_steps (
+    id UUID PRIMARY KEY,
+    conversation_id UUID NOT NULL REFERENCES conversations(id),
+    message_id UUID REFERENCES messages(id),  -- Per-message linking
+    current_agent VARCHAR(50),
+    completed_agents JSONB DEFAULT '[]',
+    steps JSONB DEFAULT '[]',
+    is_generating_summary BOOLEAN DEFAULT FALSE,
+    is_live BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP WITH TIME ZONE,
+    completed_at TIMESTAMP WITH TIME ZONE
+);
+CREATE INDEX ix_thinking_steps_message_id ON thinking_steps(message_id);
+```
+
+### ThinkingSteps Lifecycle
+
+1. **Creation**: `get_or_create_thinking_steps(db, conversation_id, agent, title, message_id)`
+   - On new message: creates new ThinkingSteps linked to user message
+   - Closes any previously active ThinkingSteps for that conversation
+
+2. **Updates**: During agent processing, `steps` array is updated:
+   ```json
+   [
+     {"agent_id": "router", "title": "Analyzing request", "status": "complete", "timestamp": "..."},
+     {"agent_id": "intake", "title": "Gathering information", "status": "active", "timestamp": "..."}
+   ]
+   ```
+
+3. **Completion**: `is_live = false`, `completed_at` set
+
+### WebSocket Events
+
+| Event | When | Payload |
+|-------|------|---------|
+| `agent_start` | Agent begins | `{agent, timestamp}` |
+| `agent_handoff` | Agent transition | `{fromAgent, toAgent}` |
+| `thinking_chunk` | Preview text | `{content}` |
+| `summary_ready` | Summary done | `{summaryId, pdfUrl}` |
+
+### Sync Response
+
+ThinkingSteps are included in `/api/v1/sync` response:
+
+```json
+{
+  "thinking_steps": [
+    {
+      "id": "uuid",
+      "conversation_id": "uuid",
+      "message_id": "uuid",  // Links to user message
+      "current_agent": "reasoning",
+      "completed_agents": ["router", "intake"],
+      "steps": [...],
+      "is_live": false
+    }
+  ]
+}
+```
+
+---
+
 ## Sync
 
 Offline-first data synchronization.

@@ -83,6 +83,9 @@ class ConversationWithMessages(ConversationResponse):
 
     messages: list[MessageResponse] = []
 
+    # Thinking steps for agent progress visualization
+    thinking_steps: list["ThinkingStepsResponse"] = []
+
     # Include dynamic orchestration metadata for debugging/admin
     facts_collected: dict[str, Any] | None = None
     analysis_done: bool = False
@@ -94,5 +97,25 @@ class ConversationWithMessages(ConversationResponse):
     when: dict[str, Any] | None = None
     where: dict[str, Any] | None = None
     why: dict[str, Any] | None = None
+
+    model_config = {"from_attributes": True}
+
+
+# ThinkingSteps Response (for agent progress visualization)
+class ThinkingStepsResponse(BaseModel):
+    """Thinking steps for agent progress visualization
+
+    Shows which agents have processed the conversation
+    """
+
+    id: UUID
+    conversation_id: UUID
+    current_agent: str | None
+    completed_agents: list[str] = []
+    steps: list[dict[str, Any]] = []
+    is_generating_summary: bool = False
+    is_live: bool = True
+    created_at: datetime
+    completed_at: datetime | None = None
 
     model_config = {"from_attributes": True}

@@ -25,12 +25,13 @@ from mistralai import (
     ToolExecutionDoneEvent,
     ToolExecutionStartedEvent,
 )
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm.attributes import flag_modified
 
 from app.config import settings
 from app.database import get_db
-from app.models import Conversation, Document, Message, MessageRole, ThinkingBlock, User
+from app.models import Conversation, Document, Message, MessageRole, ThinkingSteps, User
 from app.services.agents import MistralAgentsService, get_mistral_agents_service
 from app.utils.security import verify_token_ws
 
@@ -95,11 +96,67 @@ def normalize_agent_id(agent: str) -> str:
     return "router"
 
 
-async def create_thinking_block(db: AsyncSession, conversation_id: UUID, agent: str, title: str) -> ThinkingBlock:
-    """Create a new ThinkingBlock and persist to database."""
+async def get_or_create_thinking_steps(
+    db: AsyncSession, conversation_id: UUID, agent: str, title: str, message_id: UUID | None = None
+) -> ThinkingSteps:
+    """Get existing ThinkingSteps for this message, or create a new one.
+
+    Per-Message Pattern: Each user message gets its own ThinkingSteps record.
+    This enables UI to show a ThinkingBubble per turn in multi-turn conversations.
+
+    If message_id is provided:
+      - Look for existing ThinkingSteps with that message_id
+      - If found, update it; if not, create new
+
+    If message_id is None (backwards compatibility):
+      - Find any active (is_live=True) ThinkingSteps for conversation
+      - If found, update it; if not, create new
+    """
+    from sqlalchemy import select, update
+
     agent_id = normalize_agent_id(agent)
-    thinking_block = ThinkingBlock(
+
+    # Strategy 1: If message_id provided, find ThinkingSteps for that specific message
+    if message_id:
+        result = await db.execute(select(ThinkingSteps).where(ThinkingSteps.message_id == message_id).limit(1))
+        existing_block = result.scalar_one_or_none()
+
+        if existing_block:
+            await add_or_update_step(db, existing_block, agent, title, "active")
+            logger.debug(f"[ThinkingSteps] Updating existing block {existing_block.id} for message {message_id}")
+            return existing_block
+
+        # Close any previous live ThinkingSteps for this conversation
+        await db.execute(
+            update(ThinkingSteps)
+            .where(ThinkingSteps.conversation_id == conversation_id)
+            .where(ThinkingSteps.is_live == True)  # noqa: E712
+            .values(is_live=False, completed_at=func.now())
+        )
+        await db.commit()
+
+    else:
+        # Backwards compatibility: find any active block for conversation
+        result = await db.execute(
+            select(ThinkingSteps)
+            .where(ThinkingSteps.conversation_id == conversation_id)
+            .where(ThinkingSteps.is_live == True)  # noqa: E712
+            .order_by(ThinkingSteps.created_at.desc())
+            .limit(1)
+        )
+        existing_block = result.scalar_one_or_none()
+
+        if existing_block:
+            await add_or_update_step(db, existing_block, agent, title, "active")
+            logger.debug(
+                f"[ThinkingSteps] Reusing existing block {existing_block.id} for conversation {conversation_id}"
+            )
+            return existing_block
+
+    # Create new ThinkingSteps for this message
+    thinking_steps = ThinkingSteps(
         conversation_id=conversation_id,
+        message_id=message_id,
         current_agent=agent,
         completed_agents=[],
         steps=[
@@ -113,18 +170,19 @@ async def create_thinking_block(db: AsyncSession, conversation_id: UUID, agent: 
         is_generating_summary=False,
         is_live=True,
     )
-    db.add(thinking_block)
+    db.add(thinking_steps)
     await db.commit()
-    await db.refresh(thinking_block)
-    return thinking_block
+    await db.refresh(thinking_steps)
+    logger.debug(f"[ThinkingSteps] Created new block {thinking_steps.id} for message {message_id}")
+    return thinking_steps
 
 
 async def add_or_update_step(
-    db: AsyncSession, thinking_block: ThinkingBlock, agent: str, title: str, status: str = "active"
+    db: AsyncSession, thinking_steps: ThinkingSteps, agent: str, title: str, status: str = "active"
 ) -> None:
-    """Add or update a step in the ThinkingBlock."""
+    """Add or update a step in the ThinkingSteps."""
     agent_id = normalize_agent_id(agent)
-    steps = list(thinking_block.steps) if thinking_block.steps else []
+    steps = list(thinking_steps.steps) if thinking_steps.steps else []
 
     # Check if step for this agent exists
     existing_idx = next((i for i, s in enumerate(steps) if s.get("agent_id") == agent_id), None)
@@ -141,28 +199,38 @@ async def add_or_update_step(
     else:
         steps.append(step_data)
 
-    thinking_block.steps = steps
-    thinking_block.current_agent = agent
+    thinking_steps.steps = steps
+    thinking_steps.current_agent = agent
+
+    # Force SQLAlchemy to detect JSONB changes
+    flag_modified(thinking_steps, "steps")
+
     await db.commit()
 
 
-async def complete_agent_step(db: AsyncSession, thinking_block: ThinkingBlock, agent: str) -> None:
+async def complete_agent_step(db: AsyncSession, thinking_steps: ThinkingSteps, agent: str) -> None:
     """Mark an agent's step as complete."""
     agent_id = normalize_agent_id(agent)
-    steps = list(thinking_block.steps) if thinking_block.steps else []
+    steps = list(thinking_steps.steps) if thinking_steps.steps else []
 
     for step in steps:
         if step.get("agent_id") == agent_id:
             step["status"] = "complete"
             step["timestamp"] = datetime.now(timezone.utc).isoformat()
 
-    thinking_block.steps = steps
+    thinking_steps.steps = steps
 
     # Also add to completed_agents list
-    completed = list(thinking_block.completed_agents) if thinking_block.completed_agents else []
+    completed = list(thinking_steps.completed_agents) if thinking_steps.completed_agents else []
     if agent not in completed:
         completed.append(agent)
-    thinking_block.completed_agents = completed
+    thinking_steps.completed_agents = completed
+
+    # Force SQLAlchemy to detect JSONB changes (in-place mutations not tracked by default)
+    flag_modified(thinking_steps, "steps")
+    flag_modified(thinking_steps, "completed_agents")
+
+    logger.info(f"[ThinkingSteps] Completed agent step: {agent}, completed_agents now: {completed}")
 
     await db.commit()
 
@@ -174,7 +242,7 @@ async def _process_single_event(
     current_agent_name: str,
     conversation=None,
     db: AsyncSession | None = None,
-    thinking_block: ThinkingBlock | None = None,
+    thinking_steps: ThinkingSteps | None = None,
     user_language: str = "de",
 ) -> str | tuple[str, str | None, str, str] | None:
     """Process a single Mistral event and return action indicator.
@@ -248,10 +316,10 @@ async def _process_single_event(
                 }
             )
 
-            # Update ThinkingBlock: complete old agent, add new agent step
-            if db and thinking_block:
-                await complete_agent_step(db, thinking_block, current_agent_name)
-                await add_or_update_step(db, thinking_block, next_agent_normalized, next_thinking_title, "active")
+            # Update ThinkingSteps: complete old agent, add new agent step
+            if db and thinking_steps:
+                await complete_agent_step(db, thinking_steps, current_agent_name)
+                await add_or_update_step(db, thinking_steps, next_agent_normalized, next_thinking_title, "active")
 
             # Send reasoning_started event when handoff to reasoning logic agent
             if "reasoning" in next_agent_normalized and "logic" in next_agent_normalized:
@@ -268,7 +336,7 @@ async def _process_single_event(
                     conversation.reasoning_started_at = datetime.now(timezone.utc)
                     logger.debug(f"[REASONING] Updated reasoning_started_at for conversation {conversation.id}")
 
-            # Send wrapup_ready event when handoff to wrap-up agent for ThinkingBlocks
+            # Send wrapup_ready event when handoff to wrap-up agent for ThinkingStepss
             if "wrap" in next_agent_normalized and "up" in next_agent_normalized:
                 logger.debug("[WRAPUP] 📋 Wrap-Up Agent activated - ready for user confirmation")
                 await websocket.send_json(
@@ -369,6 +437,7 @@ async def process_with_agents(
     agents_service: MistralAgentsService,
     db: AsyncSession,
     user_language: str = "de",
+    user_message_id: UUID | None = None,
 ):
     """Process user message with Mistral Agents using Conversations API
 
@@ -382,6 +451,7 @@ async def process_with_agents(
         agents_service: Mistral agents service
         db: Database session
         user_language: User's preferred language code ("de" or "en")
+        user_message_id: UUID of the user message that triggered this processing
     """
     try:
         # Initialize Mistral client
@@ -433,8 +503,10 @@ async def process_with_agents(
             }
         )
 
-        # Create ThinkingBlock in database and persist first step
-        thinking_block = await create_thinking_block(db, conversation.id, current_agent_name, thinking_title)
+        # Create ThinkingSteps in database and persist first step
+        thinking_steps = await get_or_create_thinking_steps(
+            db, conversation.id, current_agent_name, thinking_title, user_message_id
+        )
 
         # Check if we have an existing Mistral conversation to continue
         existing_conv_id = conversation.mistral_conversation_id
@@ -502,7 +574,7 @@ async def process_with_agents(
                 current_agent_name,
                 conversation,
                 db,
-                thinking_block,
+                thinking_steps,
                 user_language,
             )
             if isinstance(first_result, tuple) and first_result[0] == "function_call":
@@ -566,7 +638,7 @@ async def process_with_agents(
                     current_agent_name,
                     conversation,
                     db,
-                    thinking_block,
+                    thinking_steps,
                     user_language,
                 )
                 logger.debug(f"🔴 [TRACE] _process_single_event returned: {result}")
@@ -793,7 +865,7 @@ async def process_with_agents(
                                 current_agent_name,
                                 conversation,
                                 db,
-                                thinking_block,
+                                thinking_steps,
                                 user_language,
                             )
                             if cont_result == "handoff":
@@ -918,10 +990,10 @@ async def process_with_agents(
 
                 logger.info(f"📄 Generating summary for conversation {conversation.id}")
 
-                # Add summary step to ThinkingBlock
-                if thinking_block:
+                # Add summary step to ThinkingSteps
+                if thinking_steps:
                     summary_title = get_thinking_description("summary", user_language)
-                    await add_or_update_step(db, thinking_block, "summary", summary_title, "active")
+                    await add_or_update_step(db, thinking_steps, "summary", summary_title, "active")
                     # Send thinking_chunk for UI update
                     await websocket.send_json(
                         {
@@ -1011,11 +1083,11 @@ async def process_with_agents(
                     )
                     logger.info(f"✅ Summary {summary_id} created and sent to client")
 
-                    # Complete summary step and mark ThinkingBlock as finished
-                    if thinking_block:
-                        await complete_agent_step(db, thinking_block, "summary")
-                        thinking_block.is_live = False
-                        thinking_block.completed_at = datetime.now(timezone.utc)
+                    # Complete summary step and mark ThinkingSteps as finished
+                    if thinking_steps:
+                        await complete_agent_step(db, thinking_steps, "summary")
+                        thinking_steps.is_live = False
+                        thinking_steps.completed_at = datetime.now(timezone.utc)
                         await db.commit()
 
             except Exception as e:
@@ -1255,6 +1327,7 @@ async def websocket_chat(
                 agents_service=agents_service,
                 db=db,
                 user_language=user.language or "de",
+                user_message_id=user_message.id,
             )
 
     except WebSocketDisconnect:
