@@ -100,6 +100,48 @@ Authorization: Bearer <access_token>
 
 ---
 
+## Text-to-Speech (TTS)
+
+Speech synthesis using Amazon Polly neural voices.
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/tts/synthesize` | Convert text to speech (MP3) |
+| GET | `/tts/voices` | List available voices |
+
+### Synthesize Speech
+
+```bash
+POST /api/v1/tts/synthesize
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{
+  "text": "Your legal summary has been generated.",
+  "language": "de",
+  "voice_id": "Vicki"  // optional, auto-selected by language
+}
+
+# Response: audio/mpeg (MP3 binary)
+```
+
+### Voice Selection
+
+| Language | Default Voice | Engine |
+|----------|---------------|--------|
+| `de` | Vicki | Neural |
+| `en` | Joanna | Neural |
+
+### Error Handling
+
+| Status | Cause |
+|--------|-------|
+| 400 | Text too long (>3000 chars) or empty |
+| 401 | Invalid/expired token |
+| 500 | Polly service error |
+
+---
+
 ## Events (SSE)
 
 Server-Sent Events for real-time updates (notifications).

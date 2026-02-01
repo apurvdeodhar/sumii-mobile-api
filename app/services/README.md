@@ -104,6 +104,41 @@ Located at `app/templates/legal_case_report.html`
 
 ---
 
+## TTS Service (Polly)
+
+**File:** `polly_tts_service.py`
+
+Text-to-speech synthesis using Amazon Polly neural voices.
+
+### Features
+
+- **Neural voices** - High-quality, natural-sounding speech
+- **German/English** - Vicki (DE), Joanna (EN)
+- **MP3 output** - Streamed directly to mobile client
+- **Automatic fallback** - Mobile falls back to device TTS if Polly fails
+
+### Usage
+
+```python
+from app.services.polly_tts_service import polly_tts_service
+
+# Synthesize text to MP3 bytes
+audio_bytes = await polly_tts_service.synthesize(
+    text="Ihre Zusammenfassung wurde erstellt.",
+    language="de"
+)
+
+# Get available voices
+voices = await polly_tts_service.get_voices()
+```
+
+### AWS Configuration
+
+Requires IAM permissions for `polly:SynthesizeSpeech` and `polly:DescribeVoices`.
+Uses credentials from environment or `~/.aws/credentials`.
+
+---
+
 ## Other Services
 
 | Service | Description |

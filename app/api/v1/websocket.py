@@ -1244,6 +1244,10 @@ async def websocket_chat(
 
             # Process message with Mistral Agents (using Conversations API)
             # Use augmented_content (with document context) for LLM
+
+            # Refresh user's language preference (may have changed mid-session)
+            await db.refresh(user, attribute_names=["language"])
+
             await process_with_agents(
                 websocket=websocket,
                 conversation=conversation,
