@@ -166,3 +166,22 @@ resource "aws_iam_role_policy" "sqs_access_policy" {
     }]
   })
 }
+
+# Amazon Polly TTS Policy (for text-to-speech synthesis)
+resource "aws_iam_role_policy" "polly_tts_policy" {
+  count = var.enable_ecs ? 1 : 0
+  name  = "${local.common_name}-polly-tts-policy"
+  role  = aws_iam_role.ecs_task_role[0].id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect = "Allow"
+      Action = [
+        "polly:SynthesizeSpeech",
+        "polly:DescribeVoices"
+      ]
+      Resource = "*"
+    }]
+  })
+}
