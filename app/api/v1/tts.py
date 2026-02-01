@@ -12,9 +12,9 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
 
-from app.auth.jwt import get_current_user
 from app.models import User
 from app.services.polly_tts_service import get_polly_tts_service
+from app.utils.security import get_current_user
 
 logger = logging.getLogger(__name__)
 
