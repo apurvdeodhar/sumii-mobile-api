@@ -4,9 +4,13 @@ This endpoint handles real-time chat between users and AI agents.
 It uses Mistral's Conversations API with agent handoffs.
 """
 
+import asyncio
 import json
 import logging
+import time
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
+from typing import Any
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect, status
@@ -16,15 +20,18 @@ from mistralai import (
     FunctionResultEntry,
     MessageOutputEvent,
     Mistral,
+    ResponseDoneEvent,
     ResponseErrorEvent,
+    ToolExecutionDoneEvent,
     ToolExecutionStartedEvent,
 )
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm.attributes import flag_modified
 
 from app.config import settings
 from app.database import get_db
-from app.models import Conversation, Document, Message, MessageRole, User
+from app.models import Conversation, Document, Message, MessageRole, ThinkingSteps, User
 from app.services.agents import MistralAgentsService, get_mistral_agents_service
 from app.utils.security import verify_token_ws
 
@@ -33,8 +40,210 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
+def get_thinking_description(agent: str, lang: str = "de") -> str:
+    """Get a human-readable description for the thinking bubble based on agent name.
+
+    Args:
+        agent: The normalized agent name (e.g., 'router', 'intake', 'reasoning')
+        lang: Language code ('de' or 'en')
+
+    Returns:
+        Localized description string for the ThinkingBubble preview
+    """
+    descriptions = {
+        "de": {
+            "router": "Analysiere Ihre Anfrage...",
+            "intake": "Erfasse die relevanten Fakten...",
+            "fact_completion": "Sammle weitere Details...",
+            "reasoning": "Wende rechtliche Analyse an...",
+            "wrapup": "Bereite Zusammenfassung vor...",
+            "wrap_up": "Bereite Zusammenfassung vor...",
+            "summary": "Erstelle Ihre Fallzusammenfassung...",
+        },
+        "en": {
+            "router": "Analyzing your request...",
+            "intake": "Collecting relevant facts...",
+            "fact_completion": "Gathering additional details...",
+            "reasoning": "Applying legal analysis...",
+            "wrapup": "Preparing wrap-up...",
+            "wrap_up": "Preparing wrap-up...",
+            "summary": "Creating your case summary...",
+        },
+    }
+    lang_dict = descriptions.get(lang, descriptions["de"])
+    agent_lower = agent.lower()
+    for key, value in lang_dict.items():
+        if key in agent_lower:
+            return value
+    return "Verarbeite..." if lang == "de" else "Processing..."
+
+
+def normalize_agent_id(agent: str) -> str:
+    """Normalize agent name to standard agent_id for steps tracking."""
+    lower = agent.lower().replace("_", "").replace("agent", "")
+    if "router" in lower:
+        return "router"
+    if "intake" in lower:
+        return "intake"
+    if "fact" in lower or "completion" in lower:
+        return "fact_completion"
+    if "reasoning" in lower or "logic" in lower:
+        return "reasoning"
+    if "wrap" in lower or "up" in lower:
+        return "wrapup"
+    if "summary" in lower:
+        return "summary"
+    return "router"
+
+
+async def get_or_create_thinking_steps(
+    db: AsyncSession, conversation_id: UUID, agent: str, title: str, message_id: UUID | None = None
+) -> ThinkingSteps:
+    """Get existing ThinkingSteps for this message, or create a new one.
+
+    Per-Message Pattern: Each user message gets its own ThinkingSteps record.
+    This enables UI to show a ThinkingBubble per turn in multi-turn conversations.
+
+    If message_id is provided:
+      - Look for existing ThinkingSteps with that message_id
+      - If found, update it; if not, create new
+
+    If message_id is None (backwards compatibility):
+      - Find any active (is_live=True) ThinkingSteps for conversation
+      - If found, update it; if not, create new
+    """
+    from sqlalchemy import select, update
+
+    agent_id = normalize_agent_id(agent)
+
+    # Strategy 1: If message_id provided, find ThinkingSteps for that specific message
+    if message_id:
+        result = await db.execute(select(ThinkingSteps).where(ThinkingSteps.message_id == message_id).limit(1))
+        existing_block = result.scalar_one_or_none()
+
+        if existing_block:
+            await add_or_update_step(db, existing_block, agent, title, "active")
+            logger.debug(f"[ThinkingSteps] Updating existing block {existing_block.id} for message {message_id}")
+            return existing_block
+
+        # Close any previous live ThinkingSteps for this conversation
+        await db.execute(
+            update(ThinkingSteps)
+            .where(ThinkingSteps.conversation_id == conversation_id)
+            .where(ThinkingSteps.is_live == True)  # noqa: E712
+            .values(is_live=False, completed_at=func.now())
+        )
+        await db.commit()
+
+    else:
+        # Backwards compatibility: find any active block for conversation
+        result = await db.execute(
+            select(ThinkingSteps)
+            .where(ThinkingSteps.conversation_id == conversation_id)
+            .where(ThinkingSteps.is_live == True)  # noqa: E712
+            .order_by(ThinkingSteps.created_at.desc())
+            .limit(1)
+        )
+        existing_block = result.scalar_one_or_none()
+
+        if existing_block:
+            await add_or_update_step(db, existing_block, agent, title, "active")
+            logger.debug(
+                f"[ThinkingSteps] Reusing existing block {existing_block.id} for conversation {conversation_id}"
+            )
+            return existing_block
+
+    # Create new ThinkingSteps for this message
+    thinking_steps = ThinkingSteps(
+        conversation_id=conversation_id,
+        message_id=message_id,
+        current_agent=agent,
+        completed_agents=[],
+        steps=[
+            {
+                "agent_id": agent_id,
+                "title": title,
+                "status": "active",
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            }
+        ],
+        is_generating_summary=False,
+        is_live=True,
+    )
+    db.add(thinking_steps)
+    await db.commit()
+    await db.refresh(thinking_steps)
+    logger.debug(f"[ThinkingSteps] Created new block {thinking_steps.id} for message {message_id}")
+    return thinking_steps
+
+
+async def add_or_update_step(
+    db: AsyncSession, thinking_steps: ThinkingSteps, agent: str, title: str, status: str = "active"
+) -> None:
+    """Add or update a step in the ThinkingSteps."""
+    agent_id = normalize_agent_id(agent)
+    steps = list(thinking_steps.steps) if thinking_steps.steps else []
+
+    # Check if step for this agent exists
+    existing_idx = next((i for i, s in enumerate(steps) if s.get("agent_id") == agent_id), None)
+
+    step_data = {
+        "agent_id": agent_id,
+        "title": title,
+        "status": status,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+
+    if existing_idx is not None:
+        steps[existing_idx] = step_data
+    else:
+        steps.append(step_data)
+
+    thinking_steps.steps = steps
+    thinking_steps.current_agent = agent
+
+    # Force SQLAlchemy to detect JSONB changes
+    flag_modified(thinking_steps, "steps")
+
+    await db.commit()
+
+
+async def complete_agent_step(db: AsyncSession, thinking_steps: ThinkingSteps, agent: str) -> None:
+    """Mark an agent's step as complete."""
+    agent_id = normalize_agent_id(agent)
+    steps = list(thinking_steps.steps) if thinking_steps.steps else []
+
+    for step in steps:
+        if step.get("agent_id") == agent_id:
+            step["status"] = "complete"
+            step["timestamp"] = datetime.now(timezone.utc).isoformat()
+
+    thinking_steps.steps = steps
+
+    # Also add to completed_agents list
+    completed = list(thinking_steps.completed_agents) if thinking_steps.completed_agents else []
+    if agent not in completed:
+        completed.append(agent)
+    thinking_steps.completed_agents = completed
+
+    # Force SQLAlchemy to detect JSONB changes (in-place mutations not tracked by default)
+    flag_modified(thinking_steps, "steps")
+    flag_modified(thinking_steps, "completed_agents")
+
+    logger.info(f"[ThinkingSteps] Completed agent step: {agent}, completed_agents now: {completed}")
+
+    await db.commit()
+
+
 async def _process_single_event(
-    event, websocket: WebSocket, full_response_parts: list, current_agent_name: str, conversation=None
+    event,
+    websocket: WebSocket,
+    full_response_parts: list,
+    current_agent_name: str,
+    conversation=None,
+    db: AsyncSession | None = None,
+    thinking_steps: ThinkingSteps | None = None,
+    user_language: str = "de",
 ) -> str | tuple[str, str | None, str, str] | None:
     """Process a single Mistral event and return action indicator.
 
@@ -45,6 +254,10 @@ async def _process_single_event(
         "error" - error occurred
         ("function_call", tool_call_id, function_name, arguments) - function call to handle
     """
+    # DEBUG: Log every event type received
+    event_type_name = type(event.data).__name__ if hasattr(event, "data") else type(event).__name__
+    logger.debug(f"[EVENT] Received event type: {event_type_name} (agent: {current_agent_name})")
+
     # Use isinstance matching like the cookbook pattern
     match event.data:
         case MessageOutputEvent():
@@ -76,6 +289,7 @@ async def _process_single_event(
             next_agent = getattr(event.data, "next_agent_name", "unknown")
             # Normalize agent name: lowercase, underscores, remove prefixes
             next_agent_normalized = next_agent.lower().replace(" ", "_").replace("legal_", "")
+            logger.info(f"🔄 [HANDOFF] {current_agent_name} → {next_agent_normalized} (raw: {next_agent})")
             await websocket.send_json(
                 {
                     "type": "agent_handoff",
@@ -92,9 +306,39 @@ async def _process_single_event(
                     "timestamp": datetime.now(timezone.utc).isoformat(),
                 }
             )
+            # Send thinking_chunk for ThinkingBubble inline streaming
+            next_thinking_title = get_thinking_description(next_agent_normalized, user_language)
+            await websocket.send_json(
+                {
+                    "type": "thinking_chunk",
+                    "content": next_thinking_title,
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                }
+            )
 
-            # Send wrapup_ready event when handoff to wrap-up agent for ThinkingBlocks
+            # Update ThinkingSteps: complete old agent, add new agent step
+            if db and thinking_steps:
+                await complete_agent_step(db, thinking_steps, current_agent_name)
+                await add_or_update_step(db, thinking_steps, next_agent_normalized, next_thinking_title, "active")
+
+            # Send reasoning_started event when handoff to reasoning logic agent
+            if "reasoning" in next_agent_normalized and "logic" in next_agent_normalized:
+                logger.debug("[REASONING] 🧠 Reasoning Logic Agent activated - will check for contradictions")
+                await websocket.send_json(
+                    {
+                        "type": "reasoning_started",
+                        "conversation_id": str(conversation.id) if conversation else None,
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                    }
+                )
+                # Update conversation reasoning_started_at if available
+                if conversation:
+                    conversation.reasoning_started_at = datetime.now(timezone.utc)
+                    logger.debug(f"[REASONING] Updated reasoning_started_at for conversation {conversation.id}")
+
+            # Send wrapup_ready event when handoff to wrap-up agent for ThinkingStepss
             if "wrap" in next_agent_normalized and "up" in next_agent_normalized:
+                logger.debug("[WRAPUP] 📋 Wrap-Up Agent activated - ready for user confirmation")
                 await websocket.send_json(
                     {
                         "type": "wrapup_ready",
@@ -102,6 +346,14 @@ async def _process_single_event(
                         "timestamp": datetime.now(timezone.utc).isoformat(),
                     }
                 )
+
+            # Log summary agent activation
+            if "summary" in next_agent_normalized:
+                logger.debug("[SUMMARY] 📄 Summary Agent activated - generating final summary")
+                # Update conversation summary_started_at if available
+                if conversation:
+                    conversation.summary_started_at = datetime.now(timezone.utc)
+                    logger.debug(f"[SUMMARY] Updated summary_started_at for conversation {conversation.id}")
 
             return "handoff"
 
@@ -117,26 +369,42 @@ async def _process_single_event(
             )
             return None
 
+        case ToolExecutionDoneEvent():
+            # Tool execution completed
+            tool_name = getattr(event.data, "name", "unknown")
+            logger.info(f"✅ [TOOL_DONE] Tool execution completed: {tool_name}")
+            await websocket.send_json(
+                {
+                    "type": "tool_execution_done",
+                    "tool": tool_name,
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                }
+            )
+            return None
+
         case FunctionCallEvent():
             # Agent is calling a function/tool - capture details
             tool_call_id = getattr(event.data, "tool_call_id", None)
             function_name = getattr(event.data, "name", "unknown")
             arguments = getattr(event.data, "arguments", "")
-            await websocket.send_json(
-                {
-                    "type": "function_call",
-                    "tool_call_id": tool_call_id,
-                    "function": function_name,
-                    "arguments": arguments,
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
-                }
+            logger.info(f"🛠️ [FUNCTION_CALL] Agent {current_agent_name} calling: {function_name} (id: {tool_call_id})")
+            logger.debug(
+                f"[FUNCTION_CALL] Arguments: {arguments[:200]}..."
+                if len(str(arguments)) > 200
+                else f"[FUNCTION_CALL] Arguments: {arguments}"
             )
+            # NOTE: We don't send function_call events to client anymore
+            # Arguments stream in chunks (40+ events), flooding the client
+            # Thinking blocks now use dedicated WS events instead
             # Return special indicator for function call handling
             return ("function_call", tool_call_id, function_name, arguments)
 
         case ResponseErrorEvent():
             # Error occurred
             error_msg = getattr(event.data, "message", "Unknown error")
+            error_code = getattr(event.data, "code", None)
+            logger.error(f"❌ [RESPONSE_ERROR] Agent {current_agent_name}: {error_msg} (code: {error_code})")
+            logger.debug(f"[RESPONSE_ERROR] Full event data: {event.data}")
             await websocket.send_json(
                 {
                     "type": "error",
@@ -147,10 +415,17 @@ async def _process_single_event(
             )
             return "error"
 
+        case ResponseDoneEvent():
+            # CRITICAL: This event signals stream completion!
+            logger.info("🏁 [STREAM] ResponseDoneEvent received - stream complete!")
+            return "done"
+
         case _:
             # Unknown event type - check for completion indicators
             event_type = getattr(event, "event", "") or str(type(event.data))
+            logger.debug(f"[EVENT] Unknown/other event type: {event_type}")
             if "done" in str(event_type).lower() or "complete" in str(event_type).lower():
+                logger.debug(f"[EVENT] Stream completion detected via event type: {event_type}")
                 return "done"
             return None
 
@@ -162,6 +437,7 @@ async def process_with_agents(
     agents_service: MistralAgentsService,
     db: AsyncSession,
     user_language: str = "de",
+    user_message_id: UUID | None = None,
 ):
     """Process user message with Mistral Agents using Conversations API
 
@@ -175,6 +451,7 @@ async def process_with_agents(
         agents_service: Mistral agents service
         db: Database session
         user_language: User's preferred language code ("de" or "en")
+        user_message_id: UUID of the user message that triggered this processing
     """
     try:
         # Initialize Mistral client
@@ -197,6 +474,12 @@ async def process_with_agents(
         current_agent_name = "router"
         full_response_parts: list[str] = []
 
+        # Log start of processing
+        logger.info(f"{'='*60}")
+        logger.info(f"🚀 [START] Processing message for conversation {conversation.id}")
+        logger.info(f"    User message length: {len(user_message_content)} chars")
+        logger.info(f"{'='*60}")
+
         # Prepend language instruction to ensure LLM responds in user's language
         lang_name = "German" if user_language == "de" else "English"
         language_instruction = f"IMPORTANT: You MUST respond in {lang_name} only.\n\n"
@@ -210,77 +493,298 @@ async def process_with_agents(
         }
         await websocket.send_json(agent_start_payload)
 
+        # Send thinking_chunk for ThinkingBubble inline streaming
+        thinking_title = get_thinking_description(current_agent_name, user_language)
+        await websocket.send_json(
+            {
+                "type": "thinking_chunk",
+                "content": thinking_title,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            }
+        )
+
+        # Create ThinkingSteps in database and persist first step
+        thinking_steps = await get_or_create_thinking_steps(
+            db, conversation.id, current_agent_name, thinking_title, user_message_id
+        )
+
         # Check if we have an existing Mistral conversation to continue
         existing_conv_id = conversation.mistral_conversation_id
+        logger.debug(f"[MISTRAL] Conversation {conversation.id}: existing_conv_id={existing_conv_id}")
 
         # Use correct API pattern from Mistral cookbooks:
         # - start_stream() for first message
         # - append_stream() for subsequent messages
         if existing_conv_id:
             # Continue existing conversation - context preserved
-            response = client.beta.conversations.append_stream(
-                conversation_id=existing_conv_id,
-                inputs=user_message_content,
-            )
+            logger.info(f"📤 [MISTRAL] Calling append_stream() for conv_id={existing_conv_id}")
+            try:
+                response = client.beta.conversations.append_stream(
+                    conversation_id=existing_conv_id,
+                    inputs=user_message_content,
+                )
+            except Exception as e:
+                logger.error(f"❌ [MISTRAL] append_stream FAILED: {type(e).__name__}: {e}")
+                # Check for 404 - conversation/agent expired (happens when agents are recreated)
+                if "404" in str(e) or "not found" in str(e).lower() or "does not have a version" in str(e).lower():
+                    logger.warning(
+                        f"⚠️ [MISTRAL] Conversation {existing_conv_id} is stale (agents recreated). "
+                        "Resetting and creating fresh conversation..."
+                    )
+                    # Clear the stale conversation ID and create a fresh one
+                    conversation.mistral_conversation_id = None
+                    await db.commit()
+                    # Retry with start_stream to create a fresh Mistral conversation
+                    logger.info(f"🔄 [MISTRAL] Retrying with start_stream() for router_id={router_id}")
+                    response = client.beta.conversations.start_stream(
+                        agent_id=router_id,
+                        inputs=user_message_content,
+                    )
+                else:
+                    raise
         else:
             # Start new conversation
+            logger.info(f"🆕 [MISTRAL] Calling start_stream() with router_id={router_id}")
             response = client.beta.conversations.start_stream(
                 agent_id=router_id,
                 inputs=user_message_content,
             )
 
         # Process events from stream (using context manager like cookbook)
-        # Track function call accumulation (cookbook pattern from travel_assistant)
-        pending_tool_call_id: str | None = None
-        pending_function_name: str = ""
-        pending_arguments: str = ""
+        # Track ALL function calls - agents can call multiple functions at once
+        pending_function_calls: list[dict] = []  # Each: {tool_call_id, function_name, arguments}
+        current_function_call: dict | None = None  # Currently accumulating function call
+        event_count = 0  # Track for progress logging
+
+        logger.info("📡 [STREAM] Starting stream processing...")
 
         with response as event_stream:
             # Capture conversation_id from first event (cookbook pattern line 138)
             first_event = next(iter(event_stream))
             if not existing_conv_id and hasattr(first_event.data, "conversation_id"):
                 conversation.mistral_conversation_id = first_event.data.conversation_id
+                logger.info(f"🔗 [MISTRAL] New conversation created: {conversation.mistral_conversation_id}")
                 await db.commit()
 
             # Process first event
             first_result = await _process_single_event(
-                first_event, websocket, full_response_parts, current_agent_name, conversation
+                first_event,
+                websocket,
+                full_response_parts,
+                current_agent_name,
+                conversation,
+                db,
+                thinking_steps,
+                user_language,
             )
             if isinstance(first_result, tuple) and first_result[0] == "function_call":
-                pending_tool_call_id = first_result[1]
-                pending_function_name = first_result[2]
-                pending_arguments += first_result[3] or ""
+                current_function_call = {
+                    "tool_call_id": first_result[1],
+                    "function_name": first_result[2],
+                    "arguments": first_result[3] or "",
+                }
 
-            # Process remaining events
-            for event in event_stream:
+            # Process remaining events using async-safe iteration
+            # CRITICAL: next() is a BLOCKING call that blocks the event loop!
+            # We run it in executor with timeout to prevent hangs after ResponseDoneEvent
+            stream_done = False
+            stream_iter = iter(event_stream)
+            executor = ThreadPoolExecutor(max_workers=1)
+
+            async def get_next_event() -> tuple[Any | None, bool, bool]:
+                """Get next event from stream in executor with timeout.
+                Returns (event, exhausted, timed_out)"""
+                loop = asyncio.get_event_loop()
+
+                def _next():
+                    try:
+                        return next(stream_iter), False
+                    except StopIteration:
+                        return None, True
+
+                try:
+                    event, exhausted = await asyncio.wait_for(
+                        loop.run_in_executor(executor, _next),
+                        timeout=30.0,  # 30s timeout per event
+                    )
+                    return event, exhausted, False
+                except asyncio.TimeoutError:
+                    return None, False, True
+
+            while not stream_done:
+                event, exhausted, timed_out = await get_next_event()
+
+                if exhausted:
+                    logger.info("🔵 [TRACE] Stream iterator exhausted (StopIteration)")
+                    break
+
+                if timed_out:
+                    logger.warning("⚠️ [TIMEOUT] Stream next() timed out after 30s")
+                    break
+
+                if event is None:
+                    break
+
+                logger.info(f"⚡ [TRACE] Got event #{event_count + 1} from stream")
+                event_count += 1
+                # Log progress every 50 events (to show system is alive during long streams)
+                if event_count % 50 == 0:
+                    logger.info(f"⏳ [STREAM] Progress: {event_count} events processed (agent: {current_agent_name})")
+
                 result = await _process_single_event(
-                    event, websocket, full_response_parts, current_agent_name, conversation
+                    event,
+                    websocket,
+                    full_response_parts,
+                    current_agent_name,
+                    conversation,
+                    db,
+                    thinking_steps,
+                    user_language,
                 )
-                if result == "handoff":
+                logger.debug(f"🔴 [TRACE] _process_single_event returned: {result}")
+
+                # Check result IMMEDIATELY after processing - before trying to get next event
+                if result == "done":
+                    logger.info(f"✅ [STREAM] Stream complete after {event_count} events")
+                    logger.info("🔵 [DEBUG] Got result='done', breaking NOW (before next iteration)")
+                    stream_done = True
+                    # Continue to process any pending function call before breaking
+                elif result == "handoff":
                     # Update current agent from handoff
                     current_agent_name = getattr(event.data, "next_agent_name", current_agent_name)
                     current_agent_name = current_agent_name.lower().replace(" ", "_").replace("legal_", "")
-                elif result == "done":
-                    break
                 elif result == "error":
+                    logger.error(f"❌ [STREAM] Error after {event_count} events")
                     return
                 elif isinstance(result, tuple) and result[0] == "function_call":
-                    # Accumulate function call data (cookbook pattern line 174)
-                    pending_tool_call_id = result[1]
-                    pending_function_name = result[2]
-                    pending_arguments += result[3] or ""
+                    new_tool_call_id = result[1]
+                    new_function_name = result[2]
+                    new_arguments = result[3] or ""
 
-        # Handle pending function call AFTER stream completes (cookbook pattern lines 182-186)
+                    # Check if this is a NEW function call or continuation of current one
+                    if current_function_call is None:
+                        # First function call
+                        logger.debug(
+                            f"[FUNC] NEW function call: {new_function_name}, args length: {len(new_arguments)}"
+                        )
+                        current_function_call = {
+                            "tool_call_id": new_tool_call_id,
+                            "function_name": new_function_name,
+                            "arguments": new_arguments,
+                        }
+                    elif current_function_call["tool_call_id"] == new_tool_call_id:
+                        # Continuing SAME function call - append arguments
+                        current_function_call["arguments"] += new_arguments
+                        logger.debug(
+                            f"[FUNC] Accumulating {new_function_name} args: "
+                            f"total {len(current_function_call['arguments'])} chars"
+                        )
+                    else:
+                        # Different function - save old one, start new one
+                        logger.info(
+                            f"📦 [FUNC] Saved function call: {current_function_call['function_name']} "
+                            f"(args: {len(current_function_call['arguments'])} chars)"
+                        )
+                        pending_function_calls.append(current_function_call)
+                        current_function_call = {
+                            "tool_call_id": new_tool_call_id,
+                            "function_name": new_function_name,
+                            "arguments": new_arguments,
+                        }
+
+            # Don't forget the last function call
+            if current_function_call:
+                pending_function_calls.append(current_function_call)
+                logger.info(
+                    f"📦 [FUNC] Saved final function call: {current_function_call['function_name']} "
+                    f"(args: {len(current_function_call['arguments'])} chars)"
+                )
+
+        logger.info("🔵 [DEBUG] Exited the with block (stream closed)")
+        logger.info(
+            f"📡 [STREAM] Stream ended. Total events: {event_count}, Functions pending: {len(pending_function_calls)}"
+        )
+
+        # Handle ALL pending function calls (Mistral requires response for EACH call)
         # Track if summary generation should be triggered
         trigger_summary_generation = False
         summary_case_data = None
 
-        if pending_tool_call_id:
-            # AUTO-TRIGGER: If Summary Agent called generate_summary, prepare for summary generation
-            if pending_function_name == "generate_summary":
-                logger.info(f"📝 AUTO-TRIGGER: Summary generation for conversation {conversation.id}")
+        function_results: list[FunctionResultEntry] = []
 
-                # Send "summary_generating" event to client
+        if pending_function_calls:
+            logger.info(f"{'='*40}")
+            logger.info(f"🔧 [FUNC] Processing {len(pending_function_calls)} function call(s)...")
+            logger.info(f"{'='*40}")
+
+        for func_call in pending_function_calls:
+            tool_call_id = func_call["tool_call_id"]
+            function_name = func_call["function_name"]
+            arguments = func_call["arguments"]
+
+            logger.info(f"🔧 [FUNC] Processing: {function_name} (id: {tool_call_id})")
+
+            # WRAP-UP: Handle signal_confirmation from Wrap-Up Agent
+            if function_name == "signal_confirmation":
+                logger.info(f"✅ [WRAPUP] signal_confirmation called for conversation {conversation.id}")
+                try:
+                    confirmation_data = json.loads(arguments) if arguments else {}
+                    is_confirmed = confirmation_data.get("confirmed", False)
+                    user_summary = confirmation_data.get("user_response_summary", "")
+                    corrections = confirmation_data.get("corrections_needed", "")
+
+                    logger.info(f"[WRAPUP] Confirmed: {is_confirmed}, Response: {user_summary}")
+
+                    # Send confirmation event to client
+                    await websocket.send_json(
+                        {
+                            "type": "confirmation_received",
+                            "confirmed": is_confirmed,
+                            "user_response": user_summary,
+                            "corrections_needed": corrections if not is_confirmed else None,
+                            "conversation_id": str(conversation.id),
+                            "timestamp": datetime.now(timezone.utc).isoformat(),
+                        }
+                    )
+                except json.JSONDecodeError as e:
+                    logger.error(f"Failed to parse confirmation arguments: {e}")
+                    logger.error(f"[CONFIRM] Raw args: {arguments[:200] if arguments else 'None'}")
+
+            # WRAP-UP: Handle track_documents from Wrap-Up Agent
+            elif function_name == "track_documents":
+                logger.info(f"📋 [WRAPUP] track_documents called for conversation {conversation.id}")
+                try:
+                    document_tracking_data = json.loads(arguments) if arguments else {}
+                    docs = document_tracking_data.get("documents", [])
+                    missing = document_tracking_data.get("missing_critical_documents", [])
+                    summary = document_tracking_data.get("evidence_summary", "")
+
+                    logger.info(f"[WRAPUP] Tracked {len(docs)} documents, {len(missing)} missing")
+
+                    # Store document tracking in conversation
+                    if hasattr(conversation, "document_tracker"):
+                        conversation.document_tracker = document_tracking_data
+
+                    # Send document tracking event to client
+                    await websocket.send_json(
+                        {
+                            "type": "documents_tracked",
+                            "document_count": len(docs),
+                            "missing_count": len(missing),
+                            "evidence_summary": summary,
+                            "conversation_id": str(conversation.id),
+                            "timestamp": datetime.now(timezone.utc).isoformat(),
+                        }
+                    )
+                except json.JSONDecodeError as e:
+                    logger.error(f"Failed to parse document tracking arguments: {e}")
+                    logger.error(f"[TRACK_DOCS] Raw args: {arguments[:200] if arguments else 'None'}")
+
+            # Summary Agent: Handle generate_summary
+            elif function_name == "generate_summary":
+                logger.info(f"📝 AUTO-TRIGGER: Summary generation for conversation {conversation.id}")
+                logger.debug(f"[SUMMARY] Arguments length: {len(arguments) if arguments else 0} chars")
+
                 await websocket.send_json(
                     {
                         "type": "summary_generating",
@@ -288,48 +792,168 @@ async def process_with_agents(
                         "timestamp": datetime.now(timezone.utc).isoformat(),
                     }
                 )
+                logger.debug("[SUMMARY] Sent summary_generating event to client")
 
-                # Parse structured case data from function arguments
                 try:
-                    summary_case_data = json.loads(pending_arguments) if pending_arguments else {}
+                    summary_case_data = json.loads(arguments) if arguments else {}
                     trigger_summary_generation = True
-                    logger.info(f"Summary data keys: {list(summary_case_data.keys())}")
+                    logger.info(f"[SUMMARY] ✅ Data parsed, keys: {list(summary_case_data.keys())}")
+                    logger.info(f"[SUMMARY] trigger_summary_generation={trigger_summary_generation}")
                 except json.JSONDecodeError as e:
-                    logger.error(f"Failed to parse summary arguments: {e}")
+                    logger.error(f"❌ [SUMMARY] Failed to parse summary arguments: {e}")
+                    logger.error(f"[SUMMARY] Raw args: {arguments[:200] if arguments else 'None'}")
 
-            # Create function result (our functions are data collectors, return success)
-            function_result = FunctionResultEntry(
-                tool_call_id=pending_tool_call_id,
-                result=f"Function {pending_function_name} executed successfully. Data collected.",
+            # Build function result for this call
+            logger.info(f"🔵 [DEBUG] Adding function result for: {function_name} (id: {tool_call_id})")
+            function_results.append(
+                FunctionResultEntry(
+                    tool_call_id=tool_call_id,
+                    result=f"Function {function_name} executed successfully. Data collected.",
+                )
             )
+            logger.info(f"🔵 [DEBUG] function_results now has {len(function_results)} items")
 
-            # Get conversation ID for append
+        # Send ALL function results back to Mistral (if any)
+        if function_results:
+            func_names = [fr.tool_call_id for fr in function_results]
+            logger.info(f"📤 [FUNC] Preparing to send {len(function_results)} function result(s) back to Mistral")
+            logger.info(f"📤 [FUNC] Function IDs: {func_names}")
+
             conv_id = conversation.mistral_conversation_id
             if conv_id:
-                # Send function result back to conversation
-                continuation = client.beta.conversations.append_stream(
-                    conversation_id=conv_id,
-                    inputs=[function_result],
-                )
-                # Process continuation events
-                with continuation as cont_stream:
-                    for cont_event in cont_stream:
-                        cont_result = await _process_single_event(
-                            cont_event, websocket, full_response_parts, current_agent_name, conversation
+                send_start_time = time.time()
+                logger.info(f"⏱️ [TIMING] Starting append_stream at {send_start_time:.3f}")
+                logger.info(f"⏱️ [TIMING] Conversation ID: {conv_id}")
+                try:
+                    logger.info(f"[FUNC] Calling append_stream with conversation_id={conv_id}...")
+                    continuation = client.beta.conversations.append_stream(
+                        conversation_id=conv_id,
+                        inputs=function_results,  # Send ALL results at once
+                    )
+                    send_duration = time.time() - send_start_time
+                    logger.info(f"[FUNC] ✅ append_stream succeeded in {send_duration:.3f}s")
+                except Exception as e:
+                    error_duration = time.time() - send_start_time
+                    logger.error(f"❌ [MISTRAL] append FAILED after {error_duration:.3f}s: {e}")
+                    logger.error(f"❌ [MISTRAL] Full error details: {repr(e)}")
+                    if "404" in str(e) or "not found" in str(e).lower() or "does not have a version" in str(e).lower():
+                        logger.warning(f"⚠️ [MISTRAL] Conversation {conv_id} is stale/invalid. Clearing ID.")
+                        logger.warning(f"⚠️ [MISTRAL] Function results that failed to send: {func_names}")
+                        conversation.mistral_conversation_id = None
+                        await db.commit()
+                        # Set continuation to None so we don't try to process it
+                        continuation = None
+                        logger.info(
+                            "[MISTRAL] Skipping continuation stream due to 404, will process local functions if any"
                         )
-                        if cont_result == "handoff":
-                            current_agent_name = getattr(cont_event.data, "next_agent_name", current_agent_name)
-                            current_agent_name = current_agent_name.lower().replace(" ", "_").replace("legal_", "")
-                        elif cont_result == "done":
-                            break
-                        elif cont_result == "error":
-                            return
+                    else:
+                        raise
+
+                # Process continuation events (only if we have a valid continuation)
+                # CRITICAL: Must also handle function calls in continuation stream!
+                # The summary_agent calls generate_summary here, and we need to accumulate those calls.
+                if continuation:
+                    cont_function_call: dict | None = None
+                    cont_pending_calls: list[dict] = []
+
+                    with continuation as cont_stream:
+                        for cont_event in cont_stream:
+                            cont_result = await _process_single_event(
+                                cont_event,
+                                websocket,
+                                full_response_parts,
+                                current_agent_name,
+                                conversation,
+                                db,
+                                thinking_steps,
+                                user_language,
+                            )
+                            if cont_result == "handoff":
+                                current_agent_name = getattr(cont_event.data, "next_agent_name", current_agent_name)
+                                current_agent_name = current_agent_name.lower().replace(" ", "_").replace("legal_", "")
+                            elif cont_result == "done":
+                                break
+                            elif cont_result == "error":
+                                return
+                            elif isinstance(cont_result, tuple) and cont_result[0] == "function_call":
+                                # Handle function calls in continuation stream (same logic as main stream)
+                                new_tool_call_id = cont_result[1]
+                                new_function_name = cont_result[2]
+                                new_arguments = cont_result[3] or ""
+
+                                if cont_function_call is None:
+                                    logger.debug(f"[CONT_FUNC] NEW continuation function call: {new_function_name}")
+                                    cont_function_call = {
+                                        "tool_call_id": new_tool_call_id,
+                                        "function_name": new_function_name,
+                                        "arguments": new_arguments,
+                                    }
+                                elif cont_function_call["tool_call_id"] == new_tool_call_id:
+                                    # Continuing SAME function call - append arguments
+                                    cont_function_call["arguments"] += new_arguments
+                                else:
+                                    # Different function - save old one, start new one
+                                    logger.info(
+                                        f"📦 [CONT_FUNC] Saved continuation function call: "
+                                        f"{cont_function_call['function_name']} "
+                                        f"(args: {len(cont_function_call['arguments'])} chars)"
+                                    )
+                                    cont_pending_calls.append(cont_function_call)
+                                    cont_function_call = {
+                                        "tool_call_id": new_tool_call_id,
+                                        "function_name": new_function_name,
+                                        "arguments": new_arguments,
+                                    }
+
+                    # Don't forget the last function call from continuation
+                    if cont_function_call:
+                        cont_pending_calls.append(cont_function_call)
+                        logger.info(
+                            f"📦 [CONT_FUNC] Saved final continuation function call: "
+                            f"{cont_function_call['function_name']} "
+                            f"(args: {len(cont_function_call['arguments'])} chars)"
+                        )
+
+                    # Process continuation function calls (especially generate_summary!)
+                    if cont_pending_calls:
+                        logger.info(
+                            f"🔧 [CONT_FUNC] Processing {len(cont_pending_calls)} continuation function call(s)"
+                        )
+
+                        for func_call in cont_pending_calls:
+                            function_name = func_call["function_name"]
+                            arguments = func_call["arguments"]
+
+                            logger.info(f"🔧 [CONT_FUNC] Processing: {function_name}")
+
+                            if function_name == "generate_summary":
+                                logger.info("📝 [CONT_FUNC] AUTO-TRIGGER: Summary generation from continuation stream")
+                                await websocket.send_json(
+                                    {
+                                        "type": "summary_generating",
+                                        "conversation_id": str(conversation.id),
+                                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                                    }
+                                )
+                                try:
+                                    summary_case_data = json.loads(arguments) if arguments else {}
+                                    trigger_summary_generation = True
+                                    logger.info(
+                                        f"[CONT_FUNC] ✅ Summary data parsed, keys: {list(summary_case_data.keys())}"
+                                    )
+                                except json.JSONDecodeError as e:
+                                    logger.error(f"❌ [CONT_FUNC] Failed to parse summary arguments: {e}")
 
         # Combine response chunks
         full_response = "".join(full_response_parts)
 
         # Save AI message to database
         if full_response:
+            logger.info(f"{'='*60}")
+            logger.info(f"✅ [END] Message complete for conversation {conversation.id}")
+            logger.info(f"    Response length: {len(full_response)} chars, Agent: {current_agent_name}")
+            logger.info(f"{'='*60}")
+
             ai_message = Message(
                 conversation_id=conversation.id,
                 role=MessageRole.ASSISTANT,
@@ -366,6 +990,19 @@ async def process_with_agents(
 
                 logger.info(f"📄 Generating summary for conversation {conversation.id}")
 
+                # Add summary step to ThinkingSteps
+                if thinking_steps:
+                    summary_title = get_thinking_description("summary", user_language)
+                    await add_or_update_step(db, thinking_steps, "summary", summary_title, "active")
+                    # Send thinking_chunk for UI update
+                    await websocket.send_json(
+                        {
+                            "type": "thinking_chunk",
+                            "content": summary_title,
+                            "timestamp": datetime.now(timezone.utc).isoformat(),
+                        }
+                    )
+
                 # Check if summary already exists
                 existing_summary = await db.execute(select(Summary).where(Summary.conversation_id == conversation.id))
                 if existing_summary.scalar_one_or_none():
@@ -378,7 +1015,7 @@ async def process_with_agents(
                     reference_number = generate_sumii_reference_number(summary_id)
 
                     # Get markdown from case_data or generate from conversation
-                    markdown_content = summary_case_data.get("markdown_summary", "")
+                    markdown_content = summary_case_data.get("markdown_content", "")
                     if not markdown_content:
                         markdown_content = (
                             f"# Fallzusammenfassung\n\n"
@@ -433,17 +1070,25 @@ async def process_with_agents(
                     await db.refresh(new_summary)
 
                     # Send summary_ready event via WebSocket
+                    # Use camelCase keys to match mobile app interface (SummaryReadyEvent)
                     await websocket.send_json(
                         {
                             "type": "summary_ready",
-                            "summary_id": str(new_summary.id),
-                            "reference_number": new_summary.reference_number,
-                            "conversation_id": str(conversation.id),
-                            "pdf_url": pdf_url,
+                            "summaryId": str(new_summary.id),
+                            "referenceNumber": new_summary.reference_number,
+                            "conversationId": str(conversation.id),
+                            "pdfUrl": pdf_url,
                             "timestamp": datetime.now(timezone.utc).isoformat(),
                         }
                     )
                     logger.info(f"✅ Summary {summary_id} created and sent to client")
+
+                    # Complete summary step and mark ThinkingSteps as finished
+                    if thinking_steps:
+                        await complete_agent_step(db, thinking_steps, "summary")
+                        thinking_steps.is_live = False
+                        thinking_steps.completed_at = datetime.now(timezone.utc)
+                        await db.commit()
 
             except Exception as e:
                 logger.error(f"Failed to auto-generate summary: {e}")
@@ -457,6 +1102,13 @@ async def process_with_agents(
 
     except Exception as e:
         # Handle errors gracefully
+        import traceback
+
+        logger.error(f"❌ [PROCESS_ERROR] Exception in process_with_agents: {type(e).__name__}: {e}")
+        logger.error(
+            f"[PROCESS_ERROR] Conversation: {conversation.id}, Mistral conv: {conversation.mistral_conversation_id}"
+        )
+        logger.debug(f"[PROCESS_ERROR] Traceback:\n{traceback.format_exc()}")
         await websocket.send_json(
             {
                 "type": "error",
@@ -664,6 +1316,10 @@ async def websocket_chat(
 
             # Process message with Mistral Agents (using Conversations API)
             # Use augmented_content (with document context) for LLM
+
+            # Refresh user's language preference (may have changed mid-session)
+            await db.refresh(user, attribute_names=["language"])
+
             await process_with_agents(
                 websocket=websocket,
                 conversation=conversation,
@@ -671,6 +1327,7 @@ async def websocket_chat(
                 agents_service=agents_service,
                 db=db,
                 user_language=user.language or "de",
+                user_message_id=user_message.id,
             )
 
     except WebSocketDisconnect:

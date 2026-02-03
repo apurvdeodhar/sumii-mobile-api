@@ -49,6 +49,9 @@ class UserProfileResponse(BaseModel):
     legal_insurance: bool | None = None
     insurance_company: str | None = None
     insurance_number: str | None = None
+    # Onboarding preferences
+    notifications_enabled: bool | None = None
+    location_enabled: bool | None = None
 
     class Config:
         from_attributes = True
@@ -68,6 +71,9 @@ class UserProfileUpdate(BaseModel):
     legal_insurance: bool | None = None
     insurance_company: str | None = None
     insurance_number: str | None = None
+    # Onboarding preferences
+    notifications_enabled: bool | None = None
+    location_enabled: bool | None = None
 
 
 # Endpoints
@@ -119,6 +125,8 @@ async def get_profile(
         legal_insurance=current_user.legal_insurance,
         insurance_company=current_user.insurance_company,
         insurance_number=current_user.insurance_number,
+        notifications_enabled=current_user.notifications_enabled,
+        location_enabled=current_user.location_enabled,
     )
 
 
@@ -164,4 +172,6 @@ async def update_profile(
         legal_insurance=current_user.legal_insurance,
         insurance_company=current_user.insurance_company,
         insurance_number=current_user.insurance_number,
+        notifications_enabled=current_user.notifications_enabled,
+        location_enabled=current_user.location_enabled,
     )

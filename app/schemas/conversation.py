@@ -7,6 +7,7 @@ from uuid import UUID
 from pydantic import BaseModel, Field
 
 from app.models.conversation import CaseStrength, ConversationStatus, LegalArea, Urgency
+from app.schemas.thinking_steps import ThinkingStepsResponse
 
 
 # Conversation Create (POST request)
@@ -82,6 +83,12 @@ class ConversationWithMessages(ConversationResponse):
     """
 
     messages: list[MessageResponse] = []
+
+    # Thinking steps for agent progress visualization
+    thinking_steps: list[ThinkingStepsResponse] = []
+
+    # Summary ID for linking to SummarySheet (computed from summary relationship)
+    summary_id: UUID | None = None
 
     # Include dynamic orchestration metadata for debugging/admin
     facts_collected: dict[str, Any] | None = None

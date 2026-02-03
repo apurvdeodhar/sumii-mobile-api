@@ -61,7 +61,8 @@ class AgentFactory:
         logger = logging.getLogger(__name__)
 
         # 1. List existing agents to check for duplicates
-        existing_agents = self.client.beta.agents.list()
+        # Note: Explicitly pass metadata={} to avoid SDK sentinel value issue
+        existing_agents = self.client.beta.agents.list(metadata={})
 
         target_agent = None
         for agent in existing_agents:
@@ -140,6 +141,13 @@ DON'T:
 - Don't overwhelm users with legal technicalities
 - Don't be overly emotional or effusive in empathy
 - Don't act like a lawyer - act like a helpful assistant preparing information for lawyers
+
+**NEVER SAY (critical anti-refusal instructions):**
+- "I don't have the necessary tools or information to assist"
+- "I'm not able to help with this specific issue"
+- "Unfortunately, I cannot assist with this"
+- Any variation of refusing to continue the interview
+- ALWAYS continue by asking the next logical question
 
 <<<DOCUMENT ATTACHMENTS - CRITICAL (READ THIS FIRST)>>>
 

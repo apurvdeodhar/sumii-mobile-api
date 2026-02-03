@@ -17,6 +17,7 @@ from app.api.v1 import (
     status,
     summaries,
     sync,
+    tts,
     users,
     webhooks,
     websocket,
@@ -93,3 +94,4 @@ app.include_router(users.router)  # Users endpoints (push token, profile)
 app.include_router(webhooks.router)  # Webhook endpoints (receive events from sumii-anwalt)
 app.include_router(websocket.router, tags=["websocket"])
 app.include_router(sync.router, prefix="/api/v1", tags=["sync"])  # Sync endpoint for mobile
+app.include_router(tts.router)  # TTS endpoints (text-to-speech with Amazon Polly)

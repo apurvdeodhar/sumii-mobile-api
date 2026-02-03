@@ -33,7 +33,14 @@ import pytest
 import requests
 import websockets
 
-from app.services.agents import create_intake_agent, create_reasoning_agent, create_router_agent, create_summary_agent
+from app.services.agents import (
+    create_fact_completion_agent,
+    create_intake_agent,
+    create_reasoning_logic_agent,
+    create_router_agent,
+    create_summary_agent,
+    create_wrapup_agent,
+)
 
 pytestmark = [pytest.mark.e2e, pytest.mark.requires_services, pytest.mark.requires_api]
 
@@ -351,18 +358,28 @@ def _test_agents_with_library():
         print_error(f"Intake Agent creation failed: {e}")
         raise
 
-    # Step 3: Create Reasoning Agent (with library + web_search)
-    print_step(3, "Create Reasoning Agent (with library + web_search)")
+    # Step 3: Create Fact Completion Agent
+    print_step(3, "Create Fact Completion Agent")
     try:
-        reasoning_id = create_reasoning_agent()
-        print_success(f"Reasoning Agent created: {reasoning_id}")
-        print_info("Tools: document_library, web_search, legal_reasoning")
+        fact_completion_id = create_fact_completion_agent()
+        print_success(f"Fact Completion Agent created: {fact_completion_id}")
+        print_info("Tools: legal_facts, document_library")
     except Exception as e:
-        print_error(f"Reasoning Agent creation failed: {e}")
+        print_error(f"Fact Completion Agent creation failed: {e}")
         raise
 
-    # Step 4: Create Summary Agent (with library)
-    print_step(4, "Create Summary Agent (with library)")
+    # Step 3b: Create Reasoning Logic Agent (Magistral model)
+    print_step(4, "Create Reasoning Logic Agent (Magistral model)")
+    try:
+        reasoning_logic_id = create_reasoning_logic_agent()
+        print_success(f"Reasoning Logic Agent created: {reasoning_logic_id}")
+        print_info("Model: magistral-medium-latest (reasoning)")
+    except Exception as e:
+        print_error(f"Reasoning Logic Agent creation failed: {e}")
+        raise
+
+    # Step 5: Create Summary Agent (with library)
+    print_step(5, "Create Summary Agent (with library)")
     try:
         summary_id = create_summary_agent()
         print_success(f"Summary Agent created: {summary_id}")
@@ -371,12 +388,23 @@ def _test_agents_with_library():
         print_error(f"Summary Agent creation failed: {e}")
         raise
 
-    print_success("All 4 agents created successfully with proper tool configuration!")
+    # Step 6: Create Wrap-Up Agent
+    print_step(6, "Create Wrap-Up Agent")
+    try:
+        wrapup_id = create_wrapup_agent()
+        print_success(f"Wrap-Up Agent created: {wrapup_id}")
+    except Exception as e:
+        print_error(f"Wrap-Up Agent creation failed: {e}")
+        raise
+
+    print_success("All 6 agents created successfully with proper tool configuration!")
 
     return {
         "router": router_id,
         "intake": intake_id,
-        "reasoning": reasoning_id,
+        "fact_completion": fact_completion_id,
+        "reasoning_logic": reasoning_logic_id,
+        "wrapup": wrapup_id,
         "summary": summary_id,
     }
 

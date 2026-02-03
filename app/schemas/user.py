@@ -39,6 +39,10 @@ class UserCreate(schemas.BaseUserCreate):
     insurance_number: str | None = None
     language: str | None = "de"  # Default to German
 
+    # Onboarding preferences (Option B - piggyback with registration)
+    notifications_enabled: bool | None = False
+    location_enabled: bool | None = False
+
 
 class UserUpdate(schemas.BaseUserUpdate):
     """Schema for user profile update request"""

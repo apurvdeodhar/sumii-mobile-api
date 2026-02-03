@@ -10,7 +10,7 @@ from sqlalchemy import UUID, Column, DateTime, Enum, ForeignKey, Index, String, 
 from sqlalchemy.orm import relationship
 
 from app.database import Base
-from app.models.conversation import CaseStrength, LegalArea, Urgency
+from app.models.conversation import LegalArea, Urgency
 
 
 class Summary(Base):
@@ -24,7 +24,6 @@ class Summary(Base):
         pdf_s3_key: S3 object key for PDF version
         pdf_url: Pre-signed or permanent URL for PDF download
         legal_area: Area of German Civil Law (copied from conversation)
-        case_strength: Legal case strength (copied from conversation)
         urgency: Matter urgency (copied from conversation)
         created_at: When summary was generated
     """
@@ -58,8 +57,8 @@ class Summary(Base):
     pdf_url = Column(String(2000), nullable=False)  # Pre-signed URL (needs 2000 chars for STS session tokens)
 
     # Metadata (copied from conversation for easy querying)
+    # Note: case_strength removed - lawyers assess case strength, not Sumii
     legal_area = Column(Enum(LegalArea), nullable=False)
-    case_strength = Column(Enum(CaseStrength), nullable=False)
     urgency = Column(Enum(Urgency), nullable=False)
 
     # Timestamp

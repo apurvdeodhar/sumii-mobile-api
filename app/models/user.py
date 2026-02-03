@@ -13,6 +13,8 @@ Uses fastapi-users SQLAlchemyBaseUserTableUUID which provides:
 - updated_at (datetime)
 """
 
+from datetime import datetime
+
 from fastapi_users.db import SQLAlchemyBaseUserTableUUID
 from sqlalchemy import String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -64,6 +66,15 @@ class User(SQLAlchemyBaseUserTableUUID, Base):
     legal_insurance: Mapped[bool | None] = mapped_column(nullable=True)  # Rechtsschutzversicherung (ja/nein)
     insurance_company: Mapped[str | None] = mapped_column(String(200), nullable=True)  # Versicherungsgesellschaft
     insurance_number: Mapped[str | None] = mapped_column(String(100), nullable=True)  # Versicherungsnummer
+
+    # Onboarding preferences (set during registration or first login)
+    notifications_enabled: Mapped[bool | None] = mapped_column(
+        nullable=True, default=False
+    )  # Push notifications opt-in
+    location_enabled: Mapped[bool | None] = mapped_column(nullable=True, default=False)  # Location services opt-in
+    disclaimer_accepted_at: Mapped[datetime | None] = mapped_column(
+        nullable=True
+    )  # When user accepted legal disclaimer
 
     # Relationships
     oauth_accounts: Mapped[list["OAuthAccount"]] = relationship(  # noqa: F821
