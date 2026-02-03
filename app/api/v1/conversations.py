@@ -86,7 +86,7 @@ async def get_conversation(
     conversation_id: UUID,
     current_user: Annotated[User, Depends(current_active_user)],
     db: Annotated[AsyncSession, Depends(get_db)],
-) -> Conversation:
+) -> ConversationWithMessages:
     """Retrieve a single conversation with all messages
 
     - **conversation_id**: UUID of the conversation
@@ -100,6 +100,7 @@ async def get_conversation(
         .options(
             selectinload(Conversation.messages),  # Eager load messages
             selectinload(Conversation.thinking_steps),  # Eager load thinking steps
+            selectinload(Conversation.summary),  # Eager load summary for summary_id
         )
     )
     conversation = result.scalar_one_or_none()
@@ -117,7 +118,33 @@ async def get_conversation(
             detail="Not authorized to access this conversation",
         )
 
-    return conversation
+    # Build response with summary_id from relationship
+    return ConversationWithMessages(
+        id=conversation.id,
+        user_id=conversation.user_id,
+        title=conversation.title,
+        status=conversation.status,
+        legal_area=conversation.legal_area,
+        case_strength=conversation.case_strength,
+        urgency=conversation.urgency,
+        current_agent=conversation.current_agent,
+        created_at=conversation.created_at,
+        updated_at=conversation.updated_at,
+        wrapup_confirmed=conversation.wrapup_confirmed,
+        wrapup_content=conversation.wrapup_content,
+        wrapup_confirmed_at=conversation.wrapup_confirmed_at,
+        messages=conversation.messages,
+        thinking_steps=conversation.thinking_steps,
+        summary_id=conversation.summary.id if conversation.summary else None,
+        facts_collected=conversation.facts_collected,
+        analysis_done=conversation.reasoning_done,
+        summary_generated=conversation.summary_generated,
+        who=conversation.who,
+        what=conversation.what,
+        when=conversation.when,
+        where=conversation.where,
+        why=conversation.why,
+    )
 
 
 @router.patch(

@@ -87,6 +87,9 @@ class ConversationWithMessages(ConversationResponse):
     # Thinking steps for agent progress visualization
     thinking_steps: list[ThinkingStepsResponse] = []
 
+    # Summary ID for linking to SummarySheet (computed from summary relationship)
+    summary_id: UUID | None = None
+
     # Include dynamic orchestration metadata for debugging/admin
     facts_collected: dict[str, Any] | None = None
     analysis_done: bool = False

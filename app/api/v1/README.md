@@ -70,10 +70,29 @@ Authorization: Bearer <access_token>
 |--------|----------|-------------|
 | GET | `/conversations` | List all conversations |
 | POST | `/conversations` | Create conversation |
-| GET | `/conversations/{id}` | Get conversation |
+| GET | `/conversations/{id}` | Get conversation with messages |
 | DELETE | `/conversations/{id}` | Delete conversation |
 | GET | `/conversations/{id}/messages` | Get messages |
 | POST | `/conversations/{id}/messages` | Send message |
+
+### GET /conversations/{id} Response
+
+The response includes `summary_id` when a summary exists for the conversation:
+
+```json
+{
+  "id": "uuid",
+  "title": "Mietrecht Frage",
+  "created_at": "2026-02-02T10:30:00Z",
+  "messages": [...],
+  "thinking_steps": [...],
+  "summary_id": "uuid-of-summary",  // null if no summary
+  "analysis_done": true,
+  "summary_generated": true
+}
+```
+
+**Why `summary_id` is included:** When a user reloads the app and opens a historical conversation, the ThinkingSheet needs `summaryId` to enable the "Legal summary created" step to open the SummarySheet. Without this, the link would be broken on reload since the `summaryId` is only available during live streaming via WebSocket events.
 
 ---
 
