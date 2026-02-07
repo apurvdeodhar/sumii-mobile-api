@@ -474,7 +474,7 @@ async def process_with_agents(
     """
     try:
         # Initialize Mistral client with optimized timeout settings
-        client = await get_mistral_async_client()
+        client = get_mistral_async_client()
 
         # Always start with Router Agent (agent-driven routing)
         router_id = agents_service.get_agent_id("router")
