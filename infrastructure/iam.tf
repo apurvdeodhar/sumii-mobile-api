@@ -18,7 +18,9 @@ resource "aws_iam_role" "ecs_task_execution_role" {
   })
 
   tags = {
-    Name = "${local.common_name}-ecs-execution-role"
+    Name        = "${local.common_name}-ecs-execution-role"
+    Terraform   = "true"
+    Application = "sumii-mobile-api"
   }
 }
 
@@ -68,7 +70,9 @@ resource "aws_iam_role" "ecs_task_role" {
   })
 
   tags = {
-    Name = "${local.common_name}-ecs-task-role"
+    Name        = "${local.common_name}-ecs-task-role"
+    Terraform   = "true"
+    Application = "sumii-mobile-api"
   }
 }
 
@@ -181,7 +185,7 @@ resource "aws_iam_role_policy" "polly_tts_policy" {
         "polly:SynthesizeSpeech",
         "polly:DescribeVoices"
       ]
-      Resource = "*"
+      Resource = "arn:aws:polly:${var.aws_region}:${local.account_id}:*"
     }]
   })
 }

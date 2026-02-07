@@ -9,7 +9,9 @@ resource "aws_secretsmanager_secret" "database_url" {
   recovery_window_in_days = 7
 
   tags = {
-    Name = "${local.common_name}-database-url"
+    Name        = "${local.common_name}-database-url"
+    Terraform   = "true"
+    Application = "sumii-mobile-api"
   }
 }
 
@@ -33,7 +35,9 @@ resource "aws_secretsmanager_secret" "jwt_secret" {
   recovery_window_in_days = 7
 
   tags = {
-    Name = "${local.common_name}-jwt-secret"
+    Name        = "${local.common_name}-jwt-secret"
+    Terraform   = "true"
+    Application = "sumii-mobile-api"
   }
 }
 
@@ -51,7 +55,9 @@ resource "aws_secretsmanager_secret" "mistral_api_key" {
   recovery_window_in_days = 7
 
   tags = {
-    Name = "${local.common_name}-mistral-api-key"
+    Name        = "${local.common_name}-mistral-api-key"
+    Terraform   = "true"
+    Application = "sumii-mobile-api"
   }
 }
 
@@ -69,7 +75,9 @@ resource "aws_secretsmanager_secret" "mistral_org_id" {
   recovery_window_in_days = 7
 
   tags = {
-    Name = "${local.common_name}-mistral-org-id"
+    Name        = "${local.common_name}-mistral-org-id"
+    Terraform   = "true"
+    Application = "sumii-mobile-api"
   }
 }
 
@@ -87,7 +95,9 @@ resource "aws_secretsmanager_secret" "mistral_library_id" {
   recovery_window_in_days = 7
 
   tags = {
-    Name = "${local.common_name}-mistral-library-id"
+    Name        = "${local.common_name}-mistral-library-id"
+    Terraform   = "true"
+    Application = "sumii-mobile-api"
   }
 }
 
@@ -95,4 +105,44 @@ resource "aws_secretsmanager_secret_version" "mistral_library_id" {
   count         = var.enable_ecs ? 1 : 0
   secret_id     = aws_secretsmanager_secret.mistral_library_id[0].id
   secret_string = var.mistral_library_id
+}
+
+# Google OAuth Client ID
+resource "aws_secretsmanager_secret" "google_client_id" {
+  count                   = var.enable_ecs ? 1 : 0
+  name                    = "${var.project_name}/mobile-api/google-client-id"
+  description             = "Google OAuth Client ID for sumii-mobile-api"
+  recovery_window_in_days = 7
+
+  tags = {
+    Name        = "${local.common_name}-google-client-id"
+    Terraform   = "true"
+    Application = "sumii-mobile-api"
+  }
+}
+
+resource "aws_secretsmanager_secret_version" "google_client_id" {
+  count         = var.enable_ecs ? 1 : 0
+  secret_id     = aws_secretsmanager_secret.google_client_id[0].id
+  secret_string = var.google_client_id
+}
+
+# Google OAuth Client Secret
+resource "aws_secretsmanager_secret" "google_client_secret" {
+  count                   = var.enable_ecs ? 1 : 0
+  name                    = "${var.project_name}/mobile-api/google-client-secret"
+  description             = "Google OAuth Client Secret for sumii-mobile-api"
+  recovery_window_in_days = 7
+
+  tags = {
+    Name        = "${local.common_name}-google-client-secret"
+    Terraform   = "true"
+    Application = "sumii-mobile-api"
+  }
+}
+
+resource "aws_secretsmanager_secret_version" "google_client_secret" {
+  count         = var.enable_ecs ? 1 : 0
+  secret_id     = aws_secretsmanager_secret.google_client_secret[0].id
+  secret_string = var.google_client_secret
 }

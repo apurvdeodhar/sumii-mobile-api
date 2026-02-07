@@ -317,12 +317,16 @@ aws ses verify-email-identity --email-address your-dev@email.com
 | [aws_s3_bucket_versioning.pdfs](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/s3_bucket_versioning) | resource |
 | [aws_secretsmanager_secret.database_url](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/secretsmanager_secret) | resource |
 | [aws_secretsmanager_secret.db_password](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/secretsmanager_secret) | resource |
+| [aws_secretsmanager_secret.google_client_id](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/secretsmanager_secret) | resource |
+| [aws_secretsmanager_secret.google_client_secret](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/secretsmanager_secret) | resource |
 | [aws_secretsmanager_secret.jwt_secret](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/secretsmanager_secret) | resource |
 | [aws_secretsmanager_secret.mistral_api_key](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/secretsmanager_secret) | resource |
 | [aws_secretsmanager_secret.mistral_library_id](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/secretsmanager_secret) | resource |
 | [aws_secretsmanager_secret.mistral_org_id](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/secretsmanager_secret) | resource |
 | [aws_secretsmanager_secret_version.database_url](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/secretsmanager_secret_version) | resource |
 | [aws_secretsmanager_secret_version.db_password](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/secretsmanager_secret_version) | resource |
+| [aws_secretsmanager_secret_version.google_client_id](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/secretsmanager_secret_version) | resource |
+| [aws_secretsmanager_secret_version.google_client_secret](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/secretsmanager_secret_version) | resource |
 | [aws_secretsmanager_secret_version.jwt_secret](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/secretsmanager_secret_version) | resource |
 | [aws_secretsmanager_secret_version.mistral_api_key](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/secretsmanager_secret_version) | resource |
 | [aws_secretsmanager_secret_version.mistral_library_id](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/secretsmanager_secret_version) | resource |
@@ -365,6 +369,8 @@ aws ses verify-email-identity --email-address your-dev@email.com
 | <a name="input_enable_ecs"></a> [enable\_ecs](#input\_enable\_ecs) | Enable ECS-related resources (IAM roles). Disable for local dev. | `bool` | `false` | no |
 | <a name="input_enable_notifications"></a> [enable\_notifications](#input\_enable\_notifications) | Enable SNS/SQS notification infrastructure. Disable for local dev. | `bool` | `false` | no |
 | <a name="input_environment"></a> [environment](#input\_environment) | Environment (local, dev, staging, prod) | `string` | `"dev"` | no |
+| <a name="input_google_client_id"></a> [google\_client\_id](#input\_google\_client\_id) | Google OAuth Client ID (sensitive) | `string` | `""` | no |
+| <a name="input_google_client_secret"></a> [google\_client\_secret](#input\_google\_client\_secret) | Google OAuth Client Secret (sensitive) | `string` | `""` | no |
 | <a name="input_image_tag"></a> [image\_tag](#input\_image\_tag) | Docker image tag to deploy | `string` | `"latest"` | no |
 | <a name="input_mistral_api_key"></a> [mistral\_api\_key](#input\_mistral\_api\_key) | Mistral AI API key (sensitive) | `string` | `""` | no |
 | <a name="input_mistral_library_id"></a> [mistral\_library\_id](#input\_mistral\_library\_id) | Mistral AI Library ID (sensitive) | `string` | `""` | no |

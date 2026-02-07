@@ -16,7 +16,9 @@ resource "aws_secretsmanager_secret" "db_password" {
   recovery_window_in_days = 7
 
   tags = {
-    Name = "${local.common_name}-db-password"
+    Name        = "${local.common_name}-db-password"
+    Terraform   = "true"
+    Application = "sumii-mobile-api"
   }
 }
 

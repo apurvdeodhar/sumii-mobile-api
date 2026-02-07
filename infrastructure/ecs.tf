@@ -39,7 +39,9 @@ resource "aws_cloudwatch_log_group" "mobile_api" {
   retention_in_days = 14
 
   tags = {
-    Name = "${local.common_name}-logs"
+    Name        = "${local.common_name}-logs"
+    Terraform   = "true"
+    Application = "sumii-mobile-api"
   }
 }
 
@@ -96,6 +98,14 @@ resource "aws_ecs_task_definition" "mobile_api" {
       {
         name      = "SECRET_KEY"
         valueFrom = aws_secretsmanager_secret.jwt_secret[0].arn
+      },
+      {
+        name      = "GOOGLE_CLIENT_ID"
+        valueFrom = aws_secretsmanager_secret.google_client_id[0].arn
+      },
+      {
+        name      = "GOOGLE_CLIENT_SECRET"
+        valueFrom = aws_secretsmanager_secret.google_client_secret[0].arn
       }
     ]
 
@@ -118,7 +128,9 @@ resource "aws_ecs_task_definition" "mobile_api" {
   }])
 
   tags = {
-    Name = "${local.common_name}-task-definition"
+    Name        = "${local.common_name}-task-definition"
+    Terraform   = "true"
+    Application = "sumii-mobile-api"
   }
 }
 
@@ -149,6 +161,8 @@ resource "aws_ecs_service" "mobile_api" {
   }
 
   tags = {
-    Name = "${local.common_name}-service"
+    Name        = "${local.common_name}-service"
+    Terraform   = "true"
+    Application = "sumii-mobile-api"
   }
 }
