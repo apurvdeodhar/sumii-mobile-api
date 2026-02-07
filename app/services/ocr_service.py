@@ -10,9 +10,7 @@ text from uploaded documents (PDFs, images). The extracted text is used for:
 import base64
 import logging
 
-from mistralai import Mistral
-
-from app.config import settings
+from app.services.mistral_client import get_mistral_client
 
 logger = logging.getLogger(__name__)
 
@@ -25,8 +23,8 @@ class OCRService:
     """
 
     def __init__(self):
-        """Initialize OCR service with Mistral client"""
-        self.client = Mistral(api_key=settings.MISTRAL_API_KEY)
+        """Initialize OCR service with Mistral client (optimized timeout settings)"""
+        self.client = get_mistral_client()
         # Model for image OCR processing (vision model)
         # For PDF OCR, we use mistral-ocr-latest via the dedicated OCR endpoint
         self.model = "pixtral-large-latest"

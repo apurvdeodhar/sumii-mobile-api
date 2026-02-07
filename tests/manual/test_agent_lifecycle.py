@@ -21,11 +21,12 @@ from mistralai import (
     AgentHandoffDoneEvent,
     FunctionCallEvent,
     MessageOutputEvent,
-    Mistral,
     ResponseDoneEvent,
     ResponseErrorEvent,
     ToolExecutionStartedEvent,
 )
+
+from app.services.mistral_client import get_mistral_client
 
 # Load environment
 load_dotenv()
@@ -102,7 +103,7 @@ def test_agent_creation() -> dict[str, str]:
     # Configure handoffs
     log_section("HANDOFF CONFIGURATION")
 
-    client = Mistral(api_key=os.environ["MISTRAL_API_KEY"])
+    client = get_mistral_client()
 
     handoff_config = [
         ("router", [agents["intake"]]),
@@ -125,7 +126,7 @@ def test_conversation_flow(agents: dict[str, str], test_messages: list[str]) -> 
     """Test a conversation flow and log all events."""
     log_section("STEP 2: CONVERSATION FLOW")
 
-    client = Mistral(api_key=os.environ["MISTRAL_API_KEY"])
+    client = get_mistral_client()
 
     conversation_id = None
     current_agent = "router"

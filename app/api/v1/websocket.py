@@ -19,7 +19,6 @@ from mistralai import (
     FunctionCallEvent,
     FunctionResultEntry,
     MessageOutputEvent,
-    Mistral,
     ResponseDoneEvent,
     ResponseErrorEvent,
     ToolExecutionDoneEvent,
@@ -29,10 +28,10 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import flag_modified
 
-from app.config import settings
 from app.database import get_db
 from app.models import Conversation, Document, Message, MessageRole, ThinkingSteps, User
 from app.services.agents import MistralAgentsService, get_mistral_agents_service
+from app.services.mistral_client import get_mistral_async_client
 from app.utils.security import verify_token_ws
 
 logger = logging.getLogger(__name__)
@@ -474,8 +473,8 @@ async def process_with_agents(
         user_message_id: UUID of the user message that triggered this processing
     """
     try:
-        # Initialize Mistral client
-        client = Mistral(api_key=settings.MISTRAL_API_KEY)
+        # Initialize Mistral client with optimized timeout settings
+        client = await get_mistral_async_client()
 
         # Always start with Router Agent (agent-driven routing)
         router_id = agents_service.get_agent_id("router")
@@ -625,7 +624,7 @@ async def process_with_agents(
                 try:
                     event, exhausted = await asyncio.wait_for(
                         loop.run_in_executor(executor, _next),
-                        timeout=30.0,  # 30s timeout per event
+                        timeout=90.0,  # 90s timeout per event (increased for Magistral thinking)
                     )
                     return event, exhausted, False
                 except asyncio.TimeoutError:
@@ -639,7 +638,7 @@ async def process_with_agents(
                     break
 
                 if timed_out:
-                    logger.warning("⚠️ [TIMEOUT] Stream next() timed out after 30s")
+                    logger.warning("⚠️ [TIMEOUT] Stream next() timed out after 90s")
                     break
 
                 if event is None:

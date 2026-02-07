@@ -19,18 +19,19 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 # Load environment
 from dotenv import load_dotenv
-from mistralai import Mistral  # noqa: E402
+
+from app.services.mistral_client import get_mistral_client
 
 load_dotenv()
 
 
-def list_agents(client: Mistral) -> list:
+def list_agents(client) -> list:
     """List all agents in the account."""
     agents = client.beta.agents.list()
     return list(agents)
 
 
-def delete_agent(client: Mistral, agent_id: str, agent_name: str, api_key: str) -> bool:
+def delete_agent(client, agent_id: str, agent_name: str, api_key: str) -> bool:
     """Delete a single agent by ID using direct HTTP request."""
     import requests
 
@@ -57,7 +58,7 @@ def main():
         print("ERROR: MISTRAL_API_KEY not found in environment")
         sys.exit(1)
 
-    client = Mistral(api_key=api_key)
+    client = get_mistral_client()
 
     print("🔍 Fetching existing agents from Mistral...")
     agents = list_agents(client)

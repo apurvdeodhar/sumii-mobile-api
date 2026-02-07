@@ -10,17 +10,15 @@ Following Mistral AI official prompting guidelines:
 - Chain-of-thought for legal reasoning
 """
 
-from mistralai import Mistral
-
-from app.config import settings
+from app.services.mistral_client import get_mistral_client
 
 
 class AgentFactory:
     """Factory for creating and managing Mistral AI agents"""
 
     def __init__(self):
-        """Initialize Mistral client with API key from settings"""
-        self.client = Mistral(api_key=settings.MISTRAL_API_KEY)
+        """Initialize Mistral client with optimized timeout settings"""
+        self.client = get_mistral_client()
 
     def _compute_hash(self, instructions: str, description: str, tools: list | None) -> str:
         """Compute hash of agent configuration to detect changes."""

@@ -25,7 +25,6 @@ import logging
 
 from mistralai import Mistral
 
-from app.config import settings
 from app.services.agents.fact_completion import create_fact_completion_agent
 from app.services.agents.intake import create_intake_agent
 from app.services.agents.reasoning_logic import create_reasoning_logic_agent
@@ -126,8 +125,10 @@ class MistralAgentsService:
         """
         self._logger.info("🚀 [AGENTS] Initializing all 6 Mistral agents...")
 
-        # Create Mistral client
-        client = Mistral(api_key=settings.MISTRAL_API_KEY)
+        # Create Mistral client with optimized timeout settings
+        from app.services.mistral_client import get_mistral_client
+
+        client = get_mistral_client()
 
         # Create all agents with progress logging
         self._logger.debug("[AGENTS] Creating Intake Agent...")
