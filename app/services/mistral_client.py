@@ -39,11 +39,11 @@ def get_mistral_client() -> Mistral:
     """
     return Mistral(
         api_key=settings.MISTRAL_API_KEY,
-        http_client=httpx.Client(timeout=MISTRAL_TIMEOUT),
+        client=httpx.Client(timeout=MISTRAL_TIMEOUT),
     )
 
 
-async def get_mistral_async_client() -> Mistral:
+def get_mistral_async_client() -> Mistral:
     """Get async Mistral client with optimized timeout settings.
 
     Use this for async streaming operations (websocket, etc).

@@ -87,6 +87,9 @@ cd /Users/apurva/Work/sumii/sumii-v2/sumii-mobile-api
 cat > .env << 'EOF'
 MISTRAL_API_KEY=your-mistral-api-key-here
 SECRET_KEY=your-jwt-secret-key-generate-with-openssl-rand-base64-32
+# Optional: Mistral API read timeout in seconds (default: 120s)
+# Increase if you see SSL ReadError or stream timeouts during long AI responses
+MISTRAL_READ_TIMEOUT=120.0
 EOF
 
 # 3. Start all services (PostgreSQL + Backend)
@@ -264,6 +267,37 @@ logger.error("Error message")
   - 4 Mistral Agents (Router, Intake, Reasoning, Summary)
   - Dynamic agent orchestration
   - Document library integration (BGB sections, case examples, templates)
+  - **Custom httpx timeout configuration** (120s read timeout for streaming)
+
+### Mistral Client Configuration
+
+The Mistral SDK uses `httpx` internally for HTTP/HTTPS requests. We configure custom timeouts to prevent SSL ReadErrors and stream timeouts during long AI responses (especially during Magistral's "thinking" phase).
+
+**Architecture:**
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  Local/Production App                                           │
+│  ┌─────────────────────────────────────────────────────────────┐│
+│  │  app/services/mistral_client.py                            ││
+│  │  ├─ get_mistral_client() → Mistral(client=httpx.Client())  ││
+│  │  └─ get_mistral_async_client() → Mistral(async_client=...) ││
+│  └────────────────────────────────────┬────────────────────────┘│
+│                                       │ HTTPS (TLS 1.3)         │
+└───────────────────────────────────────┼─────────────────────────┘
+                                        ▼
+                             ┌──────────────────────┐
+                             │  api.mistral.ai      │
+                             │  (Mistral Cloud API) │
+                             └──────────────────────┘
+```
+
+**Timeout Settings** (`MISTRAL_READ_TIMEOUT` env var, default 120s):
+- `connect=10s` - Max time to establish connection
+- `read=120s` - Max time to wait for streaming response data (**critical!**)
+- `write=30s` - Max time to send request data
+- `pool=10s` - Max time to wait for connection from pool
+
+**Reference:** [client-python#70](https://github.com/mistralai/client-python/issues/70)
 
 - ✅ **Document Management**
 
@@ -347,7 +381,7 @@ curl http://localhost:8000/health  # Verify
 
 **Production**: Use AWS Secrets Manager
 
-## 📊 Current Status (Updated: 2025-12-25)
+## 📊 Current Status (Updated: 2026-02-07)
 
 **Project**: Production-ready MVP ✅
 **Live API**: https://api.sumii.de/health
