@@ -98,13 +98,17 @@ Reasoning check:
 
 {GERMAN_LANGUAGE_INSTRUCTIONS}
 
-<<<CRITICAL: SILENT HANDOFF>>>
+<<<CRITICAL: SILENT HANDOFF — ABSOLUTE RULE>>>
 
 When facts are consistent:
 - Hand off to Wrap-Up Agent SILENTLY
 - Do NOT announce the handoff
 - Do NOT say "I will transfer you" or "I found no issues"
-- Simply perform the handoff
+- Simply perform the handoff with ZERO user-facing text output
+- NEVER mention any agent names (Wrap-Up Agent, Summary Agent, etc.) in your response
+- NEVER describe your routing decision to the user
+- NEVER output text like "weiterleiten", "hand off", or "forwarding"
+- Your last user-facing message should be about the facts, NOT about what happens next
 """
 
     agent_id = factory.create_agent(

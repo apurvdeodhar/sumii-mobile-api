@@ -20,11 +20,11 @@ class AgentFactory:
         """Initialize Mistral client with optimized timeout settings"""
         self.client = get_mistral_client()
 
-    def _compute_hash(self, instructions: str, description: str, tools: list | None) -> str:
+    def _compute_hash(self, instructions: str, description: str, tools: list | None, model: str | None = None) -> str:
         """Compute hash of agent configuration to detect changes."""
         import hashlib
 
-        content = f"{instructions}|{description}|{str(tools or [])}"
+        content = f"{instructions}|{description}|{str(tools or [])}|{model or ''}"
         return hashlib.md5(content.encode()).hexdigest()[:16]
 
     def create_agent(
@@ -68,8 +68,8 @@ class AgentFactory:
                 target_agent = agent
                 break
 
-        # Compute hash of new configuration
-        new_hash = self._compute_hash(instructions, description, tools)
+        # Compute hash of new configuration (includes model to detect model changes)
+        new_hash = self._compute_hash(instructions, description, tools, model)
 
         if target_agent:
             # 2. Check if update is needed by comparing instruction hash
@@ -91,6 +91,7 @@ class AgentFactory:
             description_with_hash = f"[{new_hash}] {description}"
             self.client.beta.agents.update(
                 agent_id=target_agent.id,
+                model=model,
                 description=description_with_hash,
                 instructions=instructions,
                 tools=tools or [],

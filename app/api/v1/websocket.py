@@ -7,6 +7,7 @@ It uses Mistral's Conversations API with agent handoffs.
 import asyncio
 import json
 import logging
+import re
 import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
@@ -37,6 +38,13 @@ from app.utils.security import verify_token_ws
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+# Pattern to detect leaked internal agent names in user-facing text
+_AGENT_NAME_LEAK_PATTERN = re.compile(
+    r"(Wrap-Up Agent|Summary Agent|Intake Agent|Fact.?Completion Agent|"
+    r"Reasoning.{0,10}Agent|Router Agent|an den \w+ Agent weiterleiten)",
+    re.IGNORECASE,
+)
 
 
 def get_thinking_description(agent: str, lang: str = "de") -> str:
@@ -88,7 +96,7 @@ def normalize_agent_id(agent: str) -> str:
         return "fact_completion"
     if "reasoning" in lower or "logic" in lower:
         return "reasoning"
-    if "wrap" in lower or "up" in lower:
+    if "wrap" in lower or "wrapup" in lower:
         return "wrapup"
     if "summary" in lower:
         return "summary"
@@ -331,10 +339,14 @@ async def _process_single_event(
                     logger.warning(f"[EVENT] Unhandled chunk type: {type(chunk).__name__}, skipping")
 
                 if text_content:
-                    full_response_parts.append(text_content)
-                    await websocket.send_json(
-                        {"type": "message_chunk", "content": text_content, "agent": current_agent_name}
-                    )
+                    # Filter out leaked internal agent names before sending to client
+                    if _AGENT_NAME_LEAK_PATTERN.search(text_content):
+                        logger.warning(f"[FILTER] Suppressed agent name leak: {text_content[:100]}...")
+                    else:
+                        full_response_parts.append(text_content)
+                        await websocket.send_json(
+                            {"type": "message_chunk", "content": text_content, "agent": current_agent_name}
+                        )
             return None
 
         case AgentHandoffDoneEvent():
@@ -368,6 +380,11 @@ async def _process_single_event(
                     "timestamp": datetime.now(timezone.utc).isoformat(),
                 }
             )
+
+            # Persist current agent on conversation for correct tracking across messages
+            if conversation:
+                conversation.current_agent = next_agent_normalized
+                db.add(conversation)
 
             # Update ThinkingSteps: complete old agent, add new agent step
             if db and thinking_steps:
@@ -523,8 +540,8 @@ async def process_with_agents(
             )
             return
 
-        # Track current agent for database updates
-        current_agent_name = "router"
+        # Track current agent for database updates (persisted from last handoff)
+        current_agent_name = conversation.current_agent or "router"
         full_response_parts: list[str] = []
 
         # Log start of processing
@@ -708,6 +725,19 @@ async def process_with_agents(
                     current_agent_name = current_agent_name.lower().replace(" ", "_").replace("legal_", "")
                 elif result == "error":
                     logger.error(f"❌ [STREAM] Error after {event_count} events")
+                    # Finalize ThinkingSteps so it doesn't stay is_live=True forever
+                    if thinking_steps:
+                        thinking_steps.is_live = False
+                        thinking_steps.completed_at = datetime.now(timezone.utc)
+                        db.add(thinking_steps)
+                        await db.commit()
+                    await websocket.send_json(
+                        {
+                            "type": "thinking_complete",
+                            "data": {"error": True},
+                            "timestamp": datetime.now(timezone.utc).isoformat(),
+                        }
+                    )
                     return
                 elif isinstance(result, tuple) and result[0] == "function_call":
                     new_tool_call_id = result[1]
@@ -1162,6 +1192,17 @@ async def process_with_agents(
             f"[PROCESS_ERROR] Conversation: {conversation.id}, Mistral conv: {conversation.mistral_conversation_id}"
         )
         logger.debug(f"[PROCESS_ERROR] Traceback:\n{traceback.format_exc()}")
+
+        # Finalize ThinkingSteps so it doesn't stay is_live=True forever on error
+        if thinking_steps:
+            try:
+                thinking_steps.is_live = False
+                thinking_steps.completed_at = datetime.now(timezone.utc)
+                db.add(thinking_steps)
+                await db.commit()
+            except Exception as ts_err:
+                logger.error(f"[PROCESS_ERROR] Failed to finalize ThinkingSteps: {ts_err}")
+
         await websocket.send_json(
             {
                 "type": "error",
