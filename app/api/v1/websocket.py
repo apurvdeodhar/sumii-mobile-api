@@ -95,6 +95,41 @@ def normalize_agent_id(agent: str) -> str:
     return "router"
 
 
+def serialize_for_json(obj: Any) -> Any:
+    """Safely serialize Mistral SDK objects (Pydantic models) to JSON-compatible types.
+
+    Handles ThinkChunk, TextChunk, and other Mistral SDK objects that have model_dump().
+    Recursively processes dicts and lists.
+
+    Args:
+        obj: Any object that might contain Mistral SDK Pydantic models
+
+    Returns:
+        JSON-serializable version of the object
+    """
+    if obj is None:
+        return None
+
+    # Handle Pydantic models (ThinkChunk, TextChunk, etc.)
+    if hasattr(obj, "model_dump"):
+        return obj.model_dump()
+
+    # Handle dicts recursively
+    if isinstance(obj, dict):
+        return {k: serialize_for_json(v) for k, v in obj.items()}
+
+    # Handle lists recursively
+    if isinstance(obj, list):
+        return [serialize_for_json(item) for item in obj]
+
+    # Handle tuples
+    if isinstance(obj, tuple):
+        return tuple(serialize_for_json(item) for item in obj)
+
+    # Primitive types (str, int, float, bool) pass through
+    return obj
+
+
 async def get_or_create_thinking_steps(
     db: AsyncSession, conversation_id: UUID, agent: str, title: str, message_id: UUID | None = None
 ) -> ThinkingSteps:
@@ -263,43 +298,42 @@ async def _process_single_event(
             # Handle message output
             content = event.data.content
             if content:
-                # Content can be a list of chunks or a string
-                if isinstance(content, list):
-                    # Extract text from chunks
-                    # Handle different chunk types including ThinkChunk from Magistral
-                    text_content = ""
-                    for chunk in content:
-                        # Handle ThinkChunk objects (from Magistral reasoning model)
-                        # ThinkChunk has a 'thinking' attribute with list of text objects
-                        if hasattr(chunk, "thinking"):
-                            # Extract text from thinking traces (for logging, not sent to client)
-                            thinking_traces = getattr(chunk, "thinking", [])
-                            for trace in thinking_traces:
-                                if hasattr(trace, "text"):
-                                    logger.debug(f"[THINKING] Reasoning trace: {trace.text[:100]}...")
-                            # Don't add thinking content to response - it's internal reasoning
-                            continue
-                        # Handle dict with type: "thinking" (Magistral model output)
-                        elif hasattr(chunk, "get") and chunk.get("type") == "thinking":
-                            thinking_list = chunk.get("thinking", [])
-                            for trace in thinking_list:
-                                if isinstance(trace, dict) and trace.get("type") == "text":
-                                    logger.debug(f"[THINKING] Reasoning trace: {trace.get('text', '')[:100]}...")
-                            # Don't add thinking content to response
-                            continue
-                        # Handle regular text chunks
-                        elif hasattr(chunk, "text"):
-                            text_content += chunk.text
-                        elif hasattr(chunk, "get"):
-                            text_content += chunk.get("text", "")
-                        elif isinstance(chunk, str):
-                            text_content += chunk
-                    content = text_content
+                # content can be: str, a single chunk object (ThinkChunk/TextChunk/etc.), or a list of chunks
+                # Normalize to list for uniform processing
+                chunks = content if isinstance(content, list) else [content]
+                text_content = ""
+                for chunk in chunks:
+                    # Skip plain strings — add directly
+                    if isinstance(chunk, str):
+                        text_content += chunk
+                        continue
+                    # ThinkChunk: internal reasoning from Magistral — log but don't send to client
+                    if hasattr(chunk, "thinking"):
+                        for trace in getattr(chunk, "thinking", []):
+                            if hasattr(trace, "text"):
+                                logger.debug(f"[THINKING] Reasoning trace: {trace.text[:100]}...")
+                        continue
+                    # Dict with type "thinking" (alternate representation)
+                    if hasattr(chunk, "get") and chunk.get("type") == "thinking":
+                        for trace in chunk.get("thinking", []):
+                            if isinstance(trace, dict) and trace.get("type") == "text":
+                                logger.debug(f"[THINKING] Reasoning trace: {trace.get('text', '')[:100]}...")
+                        continue
+                    # TextChunk or any chunk with .text attribute
+                    if hasattr(chunk, "text"):
+                        text_content += chunk.text
+                        continue
+                    # Dict-like chunk with "text" key
+                    if hasattr(chunk, "get"):
+                        text_content += chunk.get("text", "")
+                        continue
+                    # Unknown chunk type — log warning instead of silently passing through
+                    logger.warning(f"[EVENT] Unhandled chunk type: {type(chunk).__name__}, skipping")
 
-                if content:
-                    full_response_parts.append(content)
+                if text_content:
+                    full_response_parts.append(text_content)
                     await websocket.send_json(
-                        {"type": "message_chunk", "content": content, "agent": current_agent_name}
+                        {"type": "message_chunk", "content": text_content, "agent": current_agent_name}
                     )
             return None
 
@@ -1038,7 +1072,7 @@ async def process_with_agents(
                     if not markdown_content:
                         markdown_content = (
                             f"# Fallzusammenfassung\n\n"
-                            f"{json.dumps(summary_case_data, indent=2, ensure_ascii=False)}"
+                            f"{json.dumps(serialize_for_json(summary_case_data), indent=2, ensure_ascii=False)}"
                         )
 
                     # Create PDF using PDFService
