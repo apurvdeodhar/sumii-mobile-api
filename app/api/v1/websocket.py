@@ -267,9 +267,29 @@ async def _process_single_event(
                 # Content can be a list of chunks or a string
                 if isinstance(content, list):
                     # Extract text from chunks
+                    # Handle different chunk types including ThinkChunk from Magistral
                     text_content = ""
                     for chunk in content:
-                        if hasattr(chunk, "text"):
+                        # Handle ThinkChunk objects (from Magistral reasoning model)
+                        # ThinkChunk has a 'thinking' attribute with list of text objects
+                        if hasattr(chunk, "thinking"):
+                            # Extract text from thinking traces (for logging, not sent to client)
+                            thinking_traces = getattr(chunk, "thinking", [])
+                            for trace in thinking_traces:
+                                if hasattr(trace, "text"):
+                                    logger.debug(f"[THINKING] Reasoning trace: {trace.text[:100]}...")
+                            # Don't add thinking content to response - it's internal reasoning
+                            continue
+                        # Handle dict with type: "thinking" (Magistral model output)
+                        elif hasattr(chunk, "get") and chunk.get("type") == "thinking":
+                            thinking_list = chunk.get("thinking", [])
+                            for trace in thinking_list:
+                                if isinstance(trace, dict) and trace.get("type") == "text":
+                                    logger.debug(f"[THINKING] Reasoning trace: {trace.get('text', '')[:100]}...")
+                            # Don't add thinking content to response
+                            continue
+                        # Handle regular text chunks
+                        elif hasattr(chunk, "text"):
                             text_content += chunk.text
                         elif hasattr(chunk, "get"):
                             text_content += chunk.get("text", "")
