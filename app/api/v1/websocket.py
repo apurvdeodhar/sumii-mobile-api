@@ -1230,7 +1230,7 @@ async def process_with_agents(
                         from app.models.user import User
 
                         user_result = await db.execute(select(User).where(User.id == conversation.user_id))
-                        push_user = user_result.scalar_one_or_none()
+                        push_user = user_result.unique().scalar_one_or_none()
                         if push_user:
                             from app.services.push_service import push_service
 
