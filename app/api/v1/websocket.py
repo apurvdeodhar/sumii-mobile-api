@@ -1166,6 +1166,48 @@ async def process_with_agents(
                     )
                     logger.info(f"✅ Summary {summary_id} created and sent to client")
 
+                    # Create Notification DB record + send push notification
+                    try:
+                        from app.models.notification import Notification, NotificationType
+
+                        notif_title = "Zusammenfassung bereit" if user_language == "de" else "Summary ready"
+                        notif_message = (
+                            "Ihre rechtliche Zusammenfassung ist verfügbar"
+                            if user_language == "de"
+                            else "Your legal summary is available"
+                        )
+                        notif_data = {
+                            "summary_id": str(new_summary.id),
+                            "conversation_id": str(conversation.id),
+                        }
+
+                        notification = Notification(
+                            user_id=conversation.user_id,
+                            type=NotificationType.SUMMARY_READY,
+                            title=notif_title,
+                            message=notif_message,
+                            data=notif_data,
+                        )
+                        db.add(notification)
+                        await db.commit()
+
+                        # Fetch user for push token
+                        from app.models.user import User
+
+                        user_result = await db.execute(select(User).where(User.id == conversation.user_id))
+                        push_user = user_result.scalar_one_or_none()
+                        if push_user:
+                            from app.services.push_service import push_service
+
+                            await push_service.send_to_user(
+                                push_user,
+                                title=notif_title,
+                                body=notif_message,
+                                data=notif_data,
+                            )
+                    except Exception as notif_err:
+                        logger.warning(f"Push notification for summary failed: {notif_err}")
+
                     # Complete summary step and mark ThinkingSteps as finished
                     if thinking_steps:
                         await complete_agent_step(db, thinking_steps, "summary")

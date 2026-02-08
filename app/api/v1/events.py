@@ -1,14 +1,10 @@
-"""SSE Events Endpoint - Server-Sent Events for notifications
+"""SSE Events Endpoint — DEPRECATED
 
-This module provides SSE (Server-Sent Events) streaming for real-time notifications.
-SSE is used for events/notifications only (one-way: backend → mobile app).
-Chat uses WebSocket (bidirectional).
+Mobile app uses push notifications (EventSource unavailable in React Native).
+Kept for potential web client use. See push_service.py for active notification delivery.
 
-Event types:
-- summary_ready - Summary generated for conversation
-- lawyer_response - Lawyer responded to case
-- lawyer_assigned - Lawyer accepted case
-- case_updated - Case status changed
+Original purpose: SSE (Server-Sent Events) streaming for real-time notifications.
+Event types: summary_ready, lawyer_response, lawyer_assigned, case_updated.
 """
 
 import asyncio

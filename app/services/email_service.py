@@ -172,6 +172,8 @@ class EmailService:
             return
 
         verification_url = f"{settings.FRONTEND_URL}/verify-email?token={token}"
+        logger.info(f"[DEV] Verification token for {user_email}: {token}")
+        logger.info(f"[DEV] Verification URL: {verification_url}")
         is_german = language == "de"
 
         if is_german:
@@ -471,6 +473,72 @@ https://sumii.de • info@sumii.de
 
 sumii • Hamburg, Germany
 https://sumii.de • info@sumii.de
+        """
+
+        await self._send_email(user_email, subject, body_text, body_html)
+
+    async def send_login_alert_email(self, user_email: str, language: str = "de") -> None:
+        """Send login alert notification to user
+
+        Args:
+            user_email: User's email address
+            language: User's preferred language ("de" or "en")
+        """
+        if not self.ses_client or not self.from_email:
+            logger.warning(f"Email service disabled - login alert not sent to {user_email}")
+            return
+
+        from datetime import datetime, timezone
+
+        timestamp = datetime.now(timezone.utc).strftime("%d.%m.%Y %H:%M UTC")
+        is_german = language == "de"
+
+        if is_german:
+            subject = "Neue Anmeldung bei sumii"
+            title = "Neue Anmeldung erkannt"
+            message = (
+                f"Es wurde eine neue Anmeldung in Ihrem sumii-Konto am {timestamp} erkannt. "
+                "Falls Sie sich nicht angemeldet haben, setzen Sie bitte umgehend Ihr Passwort zurück."
+            )
+            cta_text = "Passwort zurücksetzen →"
+            fallback = "Falls der Button nicht funktioniert, kopieren Sie diesen Link:"
+            expiry = "Wenn Sie sich gerade angemeldet haben, können Sie diese E-Mail ignorieren."
+        else:
+            subject = "New login to sumii"
+            title = "New login detected"
+            message = (
+                f"A new login to your sumii account was detected on {timestamp}. "
+                "If this wasn't you, please reset your password immediately."
+            )
+            cta_text = "Reset Password →"
+            fallback = "If the button doesn't work, copy this link:"
+            expiry = "If you just logged in, you can ignore this email."
+
+        reset_url = f"{settings.FRONTEND_URL}/reset-password"
+
+        body_html = self._build_branded_email(
+            title=title,
+            message=message,
+            cta_text=cta_text,
+            cta_url=reset_url,
+            fallback_text=fallback,
+            fallback_url=reset_url,
+            expiry_text=expiry,
+            language=language,
+        )
+
+        body_text = f"""
+{title}
+
+{message}
+
+{cta_text}: {reset_url}
+
+{expiry}
+
+---
+sumii - Hamburg, Germany
+https://sumii.de - info@sumii.de
         """
 
         await self._send_email(user_email, subject, body_text, body_html)
