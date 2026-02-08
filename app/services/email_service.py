@@ -167,13 +167,13 @@ class EmailService:
             token: Verification token
             language: User's preferred language ("de" or "en")
         """
-        if not self.ses_client or not self.from_email:
-            logger.warning(f"Email service disabled - verification email not sent to {user_email}")
-            return
-
         verification_url = f"{settings.FRONTEND_URL}/verify-email?token={token}"
         logger.info(f"[DEV] Verification token for {user_email}: {token}")
         logger.info(f"[DEV] Verification URL: {verification_url}")
+
+        if not self.ses_client or not self.from_email:
+            logger.warning(f"Email service disabled - verification email not sent to {user_email}")
+            return
         is_german = language == "de"
 
         if is_german:
@@ -226,13 +226,13 @@ https://sumii.de • info@sumii.de
             token: Password reset token
             language: User's preferred language ("de" or "en")
         """
-        if not self.ses_client or not self.from_email:
-            logger.warning(f"Email service disabled - password reset email not sent to {user_email}")
-            return
-
         reset_url = f"{settings.FRONTEND_URL}/reset-password?token={token}"
         logger.info(f"[DEV] Password reset token for {user_email}: {token}")
         logger.info(f"[DEV] Password reset URL: {reset_url}")
+
+        if not self.ses_client or not self.from_email:
+            logger.warning(f"Email service disabled - password reset email not sent to {user_email}")
+            return
         is_german = language == "de"
 
         if is_german:
