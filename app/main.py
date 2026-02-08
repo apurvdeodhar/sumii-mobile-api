@@ -22,6 +22,7 @@ from app.api.v1 import (
     webhooks,
     websocket,
 )
+from app.config import settings
 from app.services.agents import get_mistral_agents_service
 from app.utils.logging_config import setup_logging
 
@@ -48,6 +49,8 @@ async def lifespan(app: FastAPI):
     print("👋 Shutting down Sumii Mobile API...")
 
 
+_is_prod = settings.ENVIRONMENT == "prod"
+
 app = FastAPI(
     title="Sumii Mobile API",
     version="0.1.0",
@@ -56,6 +59,9 @@ app = FastAPI(
         "Intelligent lawyer assistant for empathetic fact-gathering and lawyer connections"
     ),
     lifespan=lifespan,
+    docs_url=None if _is_prod else "/docs",
+    redoc_url=None if _is_prod else "/redoc",
+    openapi_url=None if _is_prod else "/openapi.json",
 )
 
 # CORS for mobile app (MVP - allow all origins)
