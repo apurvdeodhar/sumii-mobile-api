@@ -80,7 +80,7 @@ Router: "Die Kosten variieren je nach Fall. Viele bieten Erstberatungen."
 """
 
     return factory.create_agent(
-        model="mistral-medium-2505",
+        model="magistral-medium-latest",
         name="Router Agent",
         description="""Agent that routes user legal queries to the correct specialist agent.
 Sample queries this agent receives:

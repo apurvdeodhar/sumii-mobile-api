@@ -71,6 +71,8 @@ class AgentFactory:
         # Compute hash of new configuration (includes model to detect model changes)
         new_hash = self._compute_hash(instructions, description, tools, model)
 
+        description_with_hash = f"[{new_hash}] {description}"
+
         if target_agent:
             # 2. Check if update is needed by comparing instruction hash
             # We embed the hash in the description prefix to track changes
@@ -81,25 +83,32 @@ class AgentFactory:
             if existing_desc.startswith("[") and "]" in existing_desc:
                 existing_hash = existing_desc[1 : existing_desc.index("]")]
 
-            if existing_hash == new_hash:
+            current_model = getattr(target_agent, "model", None)
+
+            if existing_hash == new_hash and current_model == model:
                 # No changes, skip update to preserve version
-                logger.info(f"Agent '{name}' unchanged (hash={new_hash[:8]}...), skipping update")
+                logger.info(f"Agent '{name}' unchanged (hash={new_hash[:8]}..., model={current_model})")
                 return target_agent.id
 
-            # 3. Update needed - embed hash in description
-            logger.info(f"Agent '{name}' changed, updating (hash={new_hash[:8]}...)")
-            description_with_hash = f"[{new_hash}] {description}"
-            self.client.beta.agents.update(
+            # 3. Update needed (hash changed OR model changed)
+            reason = "model" if current_model != model else "config"
+            logger.info(
+                f"Agent '{name}' {reason} changed, updating "
+                f"(model: {current_model} → {model}, hash: {new_hash[:8]}...)"
+            )
+            updated_agent = self.client.beta.agents.update(
                 agent_id=target_agent.id,
                 model=model,
                 description=description_with_hash,
                 instructions=instructions,
                 tools=tools or [],
             )
-            return target_agent.id
+            # Log the returned model so we can verify in ECS logs
+            returned_model = getattr(updated_agent, "model", None)
+            logger.info(f"Agent '{name}' updated → model={returned_model}, version={updated_agent.version}")
+            return updated_agent.id
         else:
-            # 3. Create new agent with hash in description
-            description_with_hash = f"[{new_hash}] {description}"
+            # 4. Create new agent
             agent = self.client.beta.agents.create(
                 model=model,
                 name=name,
@@ -107,6 +116,7 @@ class AgentFactory:
                 instructions=instructions,
                 tools=tools or [],
             )
+            logger.info(f"Agent '{name}' created → model={model}, id={agent.id}")
             return agent.id
 
 

@@ -198,6 +198,14 @@ class MistralAgentsService:
         self._logger.info("✅ [AGENTS] All 6 agents initialized successfully!")
         self._logger.debug(f"[AGENTS] Agent IDs: {self.agents}")
 
+        # Verify agent models by querying Mistral API
+        for name, agent_id in self.agents.items():
+            try:
+                agent = client.beta.agents.get(agent_id=agent_id)
+                self._logger.info(f"  [VERIFY] {name}: model={agent.model}, id={agent_id}")
+            except Exception as e:
+                self._logger.warning(f"  [VERIFY] {name}: failed to verify - {e}")
+
         return self.agents
 
     def get_agent_id(self, agent_name: str) -> str | None:
