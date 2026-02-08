@@ -71,31 +71,38 @@ def main():
     for agent in agents:
         print(f"  - {agent.name} (ID: {agent.id})")
 
-    # Filter to only Sumii agents (by name pattern) - includes old and new names
-    sumii_agent_names = [
-        # Current names (v2)
-        "Router Agent",
-        "Intake Agent",
-        "Facts Agent",
-        "Reasoning Logic Agent",
-        "Wrap-Up Agent",
-        "Summary Agent",
-        # Old names (v1)
-        "Legal Router Agent",
-        "Legal Intake Agent",
-        "Fact Completion Agent",
-        "Legal Summary Agent",
-    ]
+    # Check for --all flag to delete ALL agents (including test agents)
+    delete_all = "--all" in sys.argv
 
-    sumii_agents = [a for a in agents if a.name in sumii_agent_names]
+    if delete_all:
+        target_agents = agents
+    else:
+        # Filter to only Sumii agents (by name pattern) - includes old and new names
+        sumii_agent_names = [
+            # Current names (v2)
+            "Router Agent",
+            "Intake Agent",
+            "Facts Agent",
+            "Reasoning Logic Agent",
+            "Wrap-Up Agent",
+            "Summary Agent",
+            # Old names (v1)
+            "Legal Router Agent",
+            "Legal Intake Agent",
+            "Fact Completion Agent",
+            "Legal Summary Agent",
+        ]
+        target_agents = [a for a in agents if a.name in sumii_agent_names]
 
-    if not sumii_agents:
-        print("\nNo Sumii agents found. Nothing to delete.")
+    if not target_agents:
+        print("\nNo matching agents found. Nothing to delete.")
         return
 
-    print(f"\n🗑️  Will delete {len(sumii_agents)} Sumii agent(s):")
-    for agent in sumii_agents:
-        print(f"  - {agent.name}")
+    label = "ALL" if delete_all else "Sumii"
+    print(f"\n🗑️  Will delete {len(target_agents)} {label} agent(s):")
+    for agent in target_agents:
+        model = getattr(agent, "model", "unknown")
+        print(f"  - {agent.name} ({model})")
 
     # Confirm deletion
     confirm = input("\n⚠️  Type 'DELETE' to confirm deletion: ")
@@ -105,11 +112,11 @@ def main():
 
     print("\n🚀 Deleting agents...")
     deleted_count = 0
-    for agent in sumii_agents:
+    for agent in target_agents:
         if delete_agent(client, agent.id, agent.name, api_key):
             deleted_count += 1
 
-    print(f"\n✅ Deleted {deleted_count}/{len(sumii_agents)} agents.")
+    print(f"\n✅ Deleted {deleted_count}/{len(target_agents)} agents.")
     print("\n📝 Next steps:")
     print("  1. Restart the API: docker compose restart sumii-mobile-api")
     print("  2. Agents will be recreated fresh with version 1")

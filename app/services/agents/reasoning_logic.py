@@ -115,7 +115,7 @@ When facts are consistent:
 """
 
     agent_id = factory.create_agent(
-        model="mistral-medium-latest",  # No magistral — ThinkChunks break Conversations API append_stream()
+        model="mistral-medium-2505",  # Pinned: 2508 (latest) has broken handoff orchestration
         name="Reasoning Logic Agent",
         description="""Agent for logical reasoning and contradiction detection.
 Uses Mistral's Magistral model for multi-step reasoning.

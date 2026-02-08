@@ -189,7 +189,7 @@ English: "Thank you for the correction. I will update that."
 """
 
     return factory.create_agent(
-        model="mistral-medium-latest",
+        model="mistral-medium-2505",  # Pinned: 2508 (latest) has broken handoff orchestration
         name="Wrap-Up Agent",
         description="""Confirms collected information before summary generation.
 Presents structured 5W summary in markdown format, detects user confirmation/correction.

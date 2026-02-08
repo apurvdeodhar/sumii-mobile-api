@@ -7,22 +7,16 @@ Reference: https://github.com/mistralai/client-python/issues/70#issuecomment-227
 See also: https://www.python-httpx.org/advanced/timeouts/
 """
 
-import os
-
 import httpx
 from mistralai import Mistral
 
 from app.config import settings
 
-# Configurable timeout for AI streaming (can be adjusted via env var)
-# Default: 120s read timeout for Magistral thinking phases
-MISTRAL_READ_TIMEOUT = float(os.getenv("MISTRAL_READ_TIMEOUT", "120.0"))
-
 # Optimized timeout configuration for AI streaming
 # Reference: https://www.python-httpx.org/advanced/timeouts/
 MISTRAL_TIMEOUT = httpx.Timeout(
     connect=10.0,  # Max time to establish connection
-    read=MISTRAL_READ_TIMEOUT,  # Max time to wait for response data (critical for streaming!)
+    read=settings.MISTRAL_READ_TIMEOUT,  # Max time to wait for response data (critical for streaming!)
     write=30.0,  # Max time to send request data
     pool=10.0,  # Max time to wait for connection from pool
 )
