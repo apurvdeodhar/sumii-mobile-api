@@ -73,7 +73,7 @@ aws ecr get-login-password --region ${REGION} | \
 
 # Build Docker image
 echo "📦 Building ${IMAGE_NAME} (linux/amd64)..."
-docker build --platform linux/amd64 -t ${IMAGE_NAME}:latest .
+docker build --no-cache --platform linux/amd64 -t ${IMAGE_NAME}:latest .
 
 # Tag image with sem-ver
 echo "🏷️  Tagging image as ${IMAGE_TAG}..."

@@ -50,6 +50,9 @@ class Settings(BaseSettings):
         None  # API key for authenticating webhook requests from sumii-anwalt (set in production)
     )
 
+    # Mistral Client Timeout (httpx read timeout for AI streaming)
+    MISTRAL_READ_TIMEOUT: float = 120.0  # Seconds — critical for Magistral thinking phases
+
     # Logging Configuration
     LOG_LEVEL: str = "INFO"  # DEBUG, INFO, WARNING, ERROR, CRITICAL
     LOG_JSON_OUTPUT: bool = False  # Enable JSON structured logging (future: not implemented yet)

@@ -10,12 +10,14 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from typing import Any
 
-from mistralai import FunctionResultEntry, Mistral
+from mistralai import FunctionResultEntry
 from mistralai.models import (
     AgentHandoffDoneEvent,
     FunctionCallEvent,
     ResponseDoneEvent,
 )
+
+from app.services.mistral_client import get_mistral_client
 
 # Load .env after standard imports
 try:
@@ -43,7 +45,7 @@ async def test_sync_next_in_async_blocks():
     log("TEST 1: Sync next() inside async - SHOULD HANG after ResponseDoneEvent")
     log("=" * 70)
 
-    client = Mistral(api_key=MISTRAL_API_KEY)
+    client = get_mistral_client()
 
     log("Starting stream...")
     response = client.beta.conversations.start_stream(
@@ -98,7 +100,7 @@ async def test_async_next_with_executor():
     log("TEST 2: Async next() with executor - SHOULD NOT HANG")
     log("=" * 70)
 
-    client = Mistral(api_key=MISTRAL_API_KEY)
+    client = get_mistral_client()
 
     log("Starting stream...")
     response = client.beta.conversations.start_stream(
@@ -190,7 +192,7 @@ async def test_full_conversation_flow():
     log("TEST 3: Full conversation flow to summary agent")
     log("=" * 70)
 
-    client = Mistral(api_key=MISTRAL_API_KEY)
+    client = get_mistral_client()
 
     # Message sequence to trigger full flow
     messages = [

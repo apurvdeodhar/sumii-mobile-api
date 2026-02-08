@@ -51,6 +51,20 @@ variable "mistral_library_id" {
   default     = ""
 }
 
+variable "google_client_id" {
+  description = "Google OAuth Client ID (sensitive)"
+  type        = string
+  sensitive   = true
+  default     = ""
+}
+
+variable "google_client_secret" {
+  description = "Google OAuth Client Secret (sensitive)"
+  type        = string
+  sensitive   = true
+  default     = ""
+}
+
 variable "project_name" {
   description = "Project name for resource naming"
   type        = string

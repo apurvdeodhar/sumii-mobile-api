@@ -130,7 +130,7 @@ Then SILENTLY hand off to the Reasoning Logic Agent.
 """
 
     return factory.create_agent(
-        model="mistral-medium-2505",
+        model="mistral-medium-2505",  # Pinned: 2508 (latest) has broken handoff orchestration
         name="Facts Agent",
         description="""Thorough fact-gathering agent for detailed case information.
 Uses 7-point interview framework: chronology, documentation, prior communication,

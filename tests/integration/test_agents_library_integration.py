@@ -9,10 +9,10 @@ Requires API keys (MISTRAL_API_KEY) to be set.
 """
 
 import pytest
-from mistralai import Mistral
 
 from app.config import settings
 from app.services.agents import create_fact_completion_agent, create_summary_agent
+from app.services.mistral_client import get_mistral_client
 
 pytestmark = [pytest.mark.integration, pytest.mark.requires_api]
 
@@ -37,7 +37,7 @@ def test_fact_completion_agent_library_access():
     print(f"✅ Agent configured with library ID: {settings.MISTRAL_LIBRARY_ID}")
     print("   (Library tool added via get_document_library_tool())")
 
-    client = Mistral(api_key=settings.MISTRAL_API_KEY)
+    client = get_mistral_client()
 
     # Step 3: Test with a sample legal query
     print("\n[3] Testing with sample legal query...")

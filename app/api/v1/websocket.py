@@ -7,6 +7,7 @@ It uses Mistral's Conversations API with agent handoffs.
 import asyncio
 import json
 import logging
+import re
 import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
@@ -19,7 +20,6 @@ from mistralai import (
     FunctionCallEvent,
     FunctionResultEntry,
     MessageOutputEvent,
-    Mistral,
     ResponseDoneEvent,
     ResponseErrorEvent,
     ToolExecutionDoneEvent,
@@ -29,15 +29,22 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import flag_modified
 
-from app.config import settings
 from app.database import get_db
 from app.models import Conversation, Document, Message, MessageRole, ThinkingSteps, User
 from app.services.agents import MistralAgentsService, get_mistral_agents_service
+from app.services.mistral_client import get_mistral_async_client
 from app.utils.security import verify_token_ws
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+# Pattern to detect leaked internal agent names in user-facing text
+_AGENT_NAME_LEAK_PATTERN = re.compile(
+    r"(Wrap-Up Agent|Summary Agent|Intake Agent|Fact.?Completion Agent|"
+    r"Reasoning.{0,10}Agent|Router Agent|an den \w+ Agent weiterleiten)",
+    re.IGNORECASE,
+)
 
 
 def get_thinking_description(agent: str, lang: str = "de") -> str:
@@ -89,11 +96,46 @@ def normalize_agent_id(agent: str) -> str:
         return "fact_completion"
     if "reasoning" in lower or "logic" in lower:
         return "reasoning"
-    if "wrap" in lower or "up" in lower:
+    if "wrap" in lower or "wrapup" in lower:
         return "wrapup"
     if "summary" in lower:
         return "summary"
     return "router"
+
+
+def serialize_for_json(obj: Any) -> Any:
+    """Safely serialize Mistral SDK objects (Pydantic models) to JSON-compatible types.
+
+    Handles ThinkChunk, TextChunk, and other Mistral SDK objects that have model_dump().
+    Recursively processes dicts and lists.
+
+    Args:
+        obj: Any object that might contain Mistral SDK Pydantic models
+
+    Returns:
+        JSON-serializable version of the object
+    """
+    if obj is None:
+        return None
+
+    # Handle Pydantic models (ThinkChunk, TextChunk, etc.)
+    if hasattr(obj, "model_dump"):
+        return obj.model_dump()
+
+    # Handle dicts recursively
+    if isinstance(obj, dict):
+        return {k: serialize_for_json(v) for k, v in obj.items()}
+
+    # Handle lists recursively
+    if isinstance(obj, list):
+        return [serialize_for_json(item) for item in obj]
+
+    # Handle tuples
+    if isinstance(obj, tuple):
+        return tuple(serialize_for_json(item) for item in obj)
+
+    # Primitive types (str, int, float, bool) pass through
+    return obj
 
 
 async def get_or_create_thinking_steps(
@@ -264,24 +306,47 @@ async def _process_single_event(
             # Handle message output
             content = event.data.content
             if content:
-                # Content can be a list of chunks or a string
-                if isinstance(content, list):
-                    # Extract text from chunks
-                    text_content = ""
-                    for chunk in content:
-                        if hasattr(chunk, "text"):
-                            text_content += chunk.text
-                        elif hasattr(chunk, "get"):
-                            text_content += chunk.get("text", "")
-                        elif isinstance(chunk, str):
-                            text_content += chunk
-                    content = text_content
+                # content can be: str, a single chunk object (ThinkChunk/TextChunk/etc.), or a list of chunks
+                # Normalize to list for uniform processing
+                chunks = content if isinstance(content, list) else [content]
+                text_content = ""
+                for chunk in chunks:
+                    # Skip plain strings — add directly
+                    if isinstance(chunk, str):
+                        text_content += chunk
+                        continue
+                    # ThinkChunk: internal reasoning from Magistral — log but don't send to client
+                    if hasattr(chunk, "thinking"):
+                        for trace in getattr(chunk, "thinking", []):
+                            if hasattr(trace, "text"):
+                                logger.debug(f"[THINKING] Reasoning trace: {trace.text[:100]}...")
+                        continue
+                    # Dict with type "thinking" (alternate representation)
+                    if hasattr(chunk, "get") and chunk.get("type") == "thinking":
+                        for trace in chunk.get("thinking", []):
+                            if isinstance(trace, dict) and trace.get("type") == "text":
+                                logger.debug(f"[THINKING] Reasoning trace: {trace.get('text', '')[:100]}...")
+                        continue
+                    # TextChunk or any chunk with .text attribute
+                    if hasattr(chunk, "text"):
+                        text_content += chunk.text
+                        continue
+                    # Dict-like chunk with "text" key
+                    if hasattr(chunk, "get"):
+                        text_content += chunk.get("text", "")
+                        continue
+                    # Unknown chunk type — log warning instead of silently passing through
+                    logger.warning(f"[EVENT] Unhandled chunk type: {type(chunk).__name__}, skipping")
 
-                if content:
-                    full_response_parts.append(content)
-                    await websocket.send_json(
-                        {"type": "message_chunk", "content": content, "agent": current_agent_name}
-                    )
+                if text_content:
+                    # Filter out leaked internal agent names before sending to client
+                    if _AGENT_NAME_LEAK_PATTERN.search(text_content):
+                        logger.warning(f"[FILTER] Suppressed agent name leak: {text_content[:100]}...")
+                    else:
+                        full_response_parts.append(text_content)
+                        await websocket.send_json(
+                            {"type": "message_chunk", "content": text_content, "agent": current_agent_name}
+                        )
             return None
 
         case AgentHandoffDoneEvent():
@@ -315,6 +380,11 @@ async def _process_single_event(
                     "timestamp": datetime.now(timezone.utc).isoformat(),
                 }
             )
+
+            # Persist current agent on conversation for correct tracking across messages
+            if conversation:
+                conversation.current_agent = next_agent_normalized
+                db.add(conversation)
 
             # Update ThinkingSteps: complete old agent, add new agent step
             if db and thinking_steps:
@@ -454,8 +524,8 @@ async def process_with_agents(
         user_message_id: UUID of the user message that triggered this processing
     """
     try:
-        # Initialize Mistral client
-        client = Mistral(api_key=settings.MISTRAL_API_KEY)
+        # Initialize Mistral client with optimized timeout settings
+        client = get_mistral_async_client()
 
         # Always start with Router Agent (agent-driven routing)
         router_id = agents_service.get_agent_id("router")
@@ -470,8 +540,8 @@ async def process_with_agents(
             )
             return
 
-        # Track current agent for database updates
-        current_agent_name = "router"
+        # Track current agent for database updates (persisted from last handoff)
+        current_agent_name = conversation.current_agent or "router"
         full_response_parts: list[str] = []
 
         # Log start of processing
@@ -605,7 +675,7 @@ async def process_with_agents(
                 try:
                     event, exhausted = await asyncio.wait_for(
                         loop.run_in_executor(executor, _next),
-                        timeout=30.0,  # 30s timeout per event
+                        timeout=90.0,  # 90s timeout per event (increased for Magistral thinking)
                     )
                     return event, exhausted, False
                 except asyncio.TimeoutError:
@@ -619,7 +689,7 @@ async def process_with_agents(
                     break
 
                 if timed_out:
-                    logger.warning("⚠️ [TIMEOUT] Stream next() timed out after 30s")
+                    logger.warning("⚠️ [TIMEOUT] Stream next() timed out after 90s")
                     break
 
                 if event is None:
@@ -655,6 +725,19 @@ async def process_with_agents(
                     current_agent_name = current_agent_name.lower().replace(" ", "_").replace("legal_", "")
                 elif result == "error":
                     logger.error(f"❌ [STREAM] Error after {event_count} events")
+                    # Finalize ThinkingSteps so it doesn't stay is_live=True forever
+                    if thinking_steps:
+                        thinking_steps.is_live = False
+                        thinking_steps.completed_at = datetime.now(timezone.utc)
+                        db.add(thinking_steps)
+                        await db.commit()
+                    await websocket.send_json(
+                        {
+                            "type": "thinking_complete",
+                            "data": {"error": True},
+                            "timestamp": datetime.now(timezone.utc).isoformat(),
+                        }
+                    )
                     return
                 elif isinstance(result, tuple) and result[0] == "function_call":
                     new_tool_call_id = result[1]
@@ -1019,7 +1102,7 @@ async def process_with_agents(
                     if not markdown_content:
                         markdown_content = (
                             f"# Fallzusammenfassung\n\n"
-                            f"{json.dumps(summary_case_data, indent=2, ensure_ascii=False)}"
+                            f"{json.dumps(serialize_for_json(summary_case_data), indent=2, ensure_ascii=False)}"
                         )
 
                     # Create PDF using PDFService
@@ -1109,6 +1192,17 @@ async def process_with_agents(
             f"[PROCESS_ERROR] Conversation: {conversation.id}, Mistral conv: {conversation.mistral_conversation_id}"
         )
         logger.debug(f"[PROCESS_ERROR] Traceback:\n{traceback.format_exc()}")
+
+        # Finalize ThinkingSteps so it doesn't stay is_live=True forever on error
+        if thinking_steps:
+            try:
+                thinking_steps.is_live = False
+                thinking_steps.completed_at = datetime.now(timezone.utc)
+                db.add(thinking_steps)
+                await db.commit()
+            except Exception as ts_err:
+                logger.error(f"[PROCESS_ERROR] Failed to finalize ThinkingSteps: {ts_err}")
+
         await websocket.send_json(
             {
                 "type": "error",

@@ -27,13 +27,14 @@ try:
 except ImportError:
     print("Note: python-dotenv not installed, using environment variables directly")
 
-from mistralai import Mistral
 from mistralai.models import (
     AgentHandoffDoneEvent,
     FunctionCallEvent,
     MessageOutputEvent,
     ResponseDoneEvent,
 )
+
+from app.services.mistral_client import get_mistral_client
 
 # Configuration
 MISTRAL_API_KEY = os.getenv("MISTRAL_API_KEY")
@@ -56,7 +57,7 @@ def test_sync_stream():
         log("ERROR: MISTRAL_API_KEY not set!")
         return False
 
-    client = Mistral(api_key=MISTRAL_API_KEY)
+    client = get_mistral_client()
 
     log(f"Starting stream with agent: {TEST_AGENT_ID}")
     log("Sending test message: 'Hello, I have a legal question about my landlord'")
@@ -142,7 +143,7 @@ async def test_async_stream_with_timeout():
         log("ERROR: MISTRAL_API_KEY not set!")
         return False
 
-    client = Mistral(api_key=MISTRAL_API_KEY)
+    client = get_mistral_client()
 
     log(f"Starting stream with agent: {TEST_AGENT_ID}")
     log("Sending test message: 'Hello, I have a legal question about heating'")
@@ -224,7 +225,7 @@ def test_simple_quick_conversation():
         log("ERROR: MISTRAL_API_KEY not set!")
         return False
 
-    client = Mistral(api_key=MISTRAL_API_KEY)
+    client = get_mistral_client()
 
     log(f"Starting stream with agent: {TEST_AGENT_ID}")
     log("Sending simple message: 'Hi'")

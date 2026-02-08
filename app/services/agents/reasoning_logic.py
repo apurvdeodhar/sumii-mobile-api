@@ -22,13 +22,16 @@ logger = logging.getLogger(__name__)
 def create_reasoning_logic_agent() -> str:
     """Create Reasoning Logic Agent for contradiction detection
 
-    Uses Magistral model (magistral-medium-latest) for multi-step
-    logical reasoning with transparent thinking traces.
+    Uses mistral-medium-latest for logical reasoning.
+    NOTE: magistral-medium-latest cannot be used here because its ThinkChunks
+    poison the Conversations API history and cause error 3051 on subsequent
+    append_stream() calls. The reasoning quality comes from instructions,
+    not from the model's extended thinking feature.
 
     Returns:
         str: Agent ID
     """
-    logger.debug("[REASONING_LOGIC] Creating Reasoning Logic Agent with Magistral model...")
+    logger.debug("[REASONING_LOGIC] Creating Reasoning Logic Agent...")
     factory = get_agent_factory()
 
     instructions = f"""You are Sumii's reasoning specialist.
@@ -98,17 +101,21 @@ Reasoning check:
 
 {GERMAN_LANGUAGE_INSTRUCTIONS}
 
-<<<CRITICAL: SILENT HANDOFF>>>
+<<<CRITICAL: SILENT HANDOFF — ABSOLUTE RULE>>>
 
 When facts are consistent:
 - Hand off to Wrap-Up Agent SILENTLY
 - Do NOT announce the handoff
 - Do NOT say "I will transfer you" or "I found no issues"
-- Simply perform the handoff
+- Simply perform the handoff with ZERO user-facing text output
+- NEVER mention any agent names (Wrap-Up Agent, Summary Agent, etc.) in your response
+- NEVER describe your routing decision to the user
+- NEVER output text like "weiterleiten", "hand off", or "forwarding"
+- Your last user-facing message should be about the facts, NOT about what happens next
 """
 
     agent_id = factory.create_agent(
-        model="magistral-medium-latest",  # Magistral reasoning model
+        model="mistral-medium-2505",  # Pinned: 2508 (latest) has broken handoff orchestration
         name="Reasoning Logic Agent",
         description="""Agent for logical reasoning and contradiction detection.
 Uses Mistral's Magistral model for multi-step reasoning.

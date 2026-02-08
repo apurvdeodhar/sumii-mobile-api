@@ -6,10 +6,9 @@ Provides interviewing skills, real-world examples, and summary templates to agen
 
 from pathlib import Path
 
-from mistralai import Mistral
 from mistralai.models import File
 
-from app.config import settings
+from app.services.mistral_client import get_mistral_client
 
 
 class DocumentLibraryService:
@@ -26,7 +25,7 @@ class DocumentLibraryService:
 
     def __init__(self):
         """Initialize the Document Library Service with Mistral client"""
-        self.client = Mistral(api_key=settings.MISTRAL_API_KEY)
+        self.client = get_mistral_client()
         self.library_id: str | None = None
 
     def create_sumii_library(self) -> str:

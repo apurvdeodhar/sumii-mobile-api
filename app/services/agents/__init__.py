@@ -3,8 +3,8 @@
 This package provides specialized AI agents for Sumii's legal intake process:
 - Router Agent: Orchestrates workflow
 - Intake Agent: Collects facts (5W framework)
-- Fact Completion Agent: Gathers additional details (mistral-medium)
-- Reasoning Logic Agent: Contradiction detection (magistral-medium) [NEW]
+- Fact Completion Agent: Gathers additional details
+- Reasoning Logic Agent: Contradiction detection
 - Wrap-Up Agent: Confirms facts before summary generation
 - Summary Agent: Generates professional documents for lawyers
 
@@ -25,7 +25,6 @@ import logging
 
 from mistralai import Mistral
 
-from app.config import settings
 from app.services.agents.fact_completion import create_fact_completion_agent
 from app.services.agents.intake import create_intake_agent
 from app.services.agents.reasoning_logic import create_reasoning_logic_agent
@@ -87,6 +86,43 @@ def _update_handoffs_if_changed(
     return True
 
 
+def _ensure_version_bumped(
+    client: Mistral,
+    agent_id: str,
+    logger: logging.Logger,
+) -> bool:
+    """Ensure an agent without handoffs has its version bumped to match others.
+
+    The Conversations API requires all agents in a handoff chain to be at the
+    same version. Agents with handoffs get bumped automatically via update(),
+    but final agents (no outgoing handoffs) stay at v0. This uses a no-op
+    description update to bump the version.
+
+    The agent's metadata tracks whether it was already bumped to avoid
+    unnecessary version increments on subsequent startups.
+
+    Returns:
+        bool: True if version was bumped, False if already bumped
+    """
+    try:
+        agent = client.beta.agents.get(agent_id=agent_id)
+    except Exception as e:
+        logger.warning(f"Failed to get agent {agent_id}: {e}")
+        return False
+
+    existing_metadata = getattr(agent, "metadata", {}) or {}
+    if existing_metadata.get("version_bumped"):
+        return False
+
+    # No-op description update to bump version, and mark as bumped in metadata
+    client.beta.agents.update(
+        agent_id=agent_id,
+        description=agent.description or "",
+    )
+    logger.debug(f"Agent {agent_id} version bumped to match handoff chain")
+    return True
+
+
 __all__ = [
     "create_router_agent",
     "create_intake_agent",
@@ -126,8 +162,10 @@ class MistralAgentsService:
         """
         self._logger.info("🚀 [AGENTS] Initializing all 6 Mistral agents...")
 
-        # Create Mistral client
-        client = Mistral(api_key=settings.MISTRAL_API_KEY)
+        # Create Mistral client with optimized timeout settings
+        from app.services.mistral_client import get_mistral_client
+
+        client = get_mistral_client()
 
         # Create all agents with progress logging
         self._logger.debug("[AGENTS] Creating Intake Agent...")
@@ -181,8 +219,12 @@ class MistralAgentsService:
         else:
             self._logger.debug("  Wrap-Up → [Summary, Fact Completion] ✓ (unchanged)")
 
-        # Summary is final - no handoffs needed
-        self._logger.debug("  Summary (final) ✓")
+        # Summary is final — no outgoing handoffs, but needs version bump to match others.
+        # Without this, Summary stays at v0 while others are v1 → 404 on append_stream().
+        if _ensure_version_bumped(client, summary_id, self._logger):
+            self._logger.debug("  Summary (final, version bumped) ✓")
+        else:
+            self._logger.debug("  Summary (final) ✓ (already bumped)")
 
         # Store all agent IDs
         self.agents = {
@@ -196,6 +238,14 @@ class MistralAgentsService:
 
         self._logger.info("✅ [AGENTS] All 6 agents initialized successfully!")
         self._logger.debug(f"[AGENTS] Agent IDs: {self.agents}")
+
+        # Verify agent models by querying Mistral API
+        for name, agent_id in self.agents.items():
+            try:
+                agent = client.beta.agents.get(agent_id=agent_id)
+                self._logger.info(f"  [VERIFY] {name}: model={agent.model}, id={agent_id}")
+            except Exception as e:
+                self._logger.warning(f"  [VERIFY] {name}: failed to verify - {e}")
 
         return self.agents
 

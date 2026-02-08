@@ -7,11 +7,9 @@ the markdown content from the agent's function call response.
 import json
 import logging
 
-from mistralai import Mistral
-
-from app.config import settings
 from app.models import Conversation, Message, MessageRole
 from app.services.agents import MistralAgentsService
+from app.services.mistral_client import get_mistral_client
 
 logger = logging.getLogger(__name__)
 
@@ -20,13 +18,13 @@ class SummaryService:
     """Service for generating legal summaries"""
 
     def __init__(self, agents_service: MistralAgentsService):
-        """Initialize summary service
+        """Initialize summary service with optimized Mistral client
 
         Args:
             agents_service: Mistral agents service instance
         """
         self.agents_service = agents_service
-        self.client = Mistral(api_key=settings.MISTRAL_API_KEY)
+        self.client = get_mistral_client()
 
     async def generate_summary(self, conversation: Conversation, db_session) -> tuple[str, dict, dict]:
         """Generate summary markdown using Summary Agent

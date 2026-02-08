@@ -197,7 +197,7 @@ Zwischen den Parteien besteht ein Mietverhältnis seit 01.01.2022. Die monatlich
 """
 
     return factory.create_agent(
-        model="mistral-medium-2505",
+        model="mistral-medium-2505",  # Pinned: 2508 (latest) has broken handoff orchestration
         name="Summary Agent",
         description="""Agent to generate professional factual summaries.
 This agent receives cases AFTER fact collection is complete.
