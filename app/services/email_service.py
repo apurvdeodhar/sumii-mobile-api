@@ -231,6 +231,8 @@ https://sumii.de • info@sumii.de
             return
 
         reset_url = f"{settings.FRONTEND_URL}/reset-password?token={token}"
+        logger.info(f"[DEV] Password reset token for {user_email}: {token}")
+        logger.info(f"[DEV] Password reset URL: {reset_url}")
         is_german = language == "de"
 
         if is_german:

@@ -98,14 +98,14 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
         from app.services.email_service import EmailService
 
         email_service = EmailService()
-        await email_service.send_password_reset_email(user.email, token)
+        await email_service.send_password_reset_email(user.email, token, language=user.language or "de")
 
     async def on_after_request_verify(self, user: User, token: str, request: Request | None = None):
         """Send email verification link via AWS SES"""
         from app.services.email_service import EmailService
 
         email_service = EmailService()
-        await email_service.send_verification_email(user.email, token)
+        await email_service.send_verification_email(user.email, token, language=user.language or "de")
 
 
 async def get_user_manager(
