@@ -22,13 +22,16 @@ logger = logging.getLogger(__name__)
 def create_reasoning_logic_agent() -> str:
     """Create Reasoning Logic Agent for contradiction detection
 
-    Uses Magistral model (magistral-medium-latest) for multi-step
-    logical reasoning with transparent thinking traces.
+    Uses mistral-medium-latest for logical reasoning.
+    NOTE: magistral-medium-latest cannot be used here because its ThinkChunks
+    poison the Conversations API history and cause error 3051 on subsequent
+    append_stream() calls. The reasoning quality comes from instructions,
+    not from the model's extended thinking feature.
 
     Returns:
         str: Agent ID
     """
-    logger.debug("[REASONING_LOGIC] Creating Reasoning Logic Agent with Magistral model...")
+    logger.debug("[REASONING_LOGIC] Creating Reasoning Logic Agent...")
     factory = get_agent_factory()
 
     instructions = f"""You are Sumii's reasoning specialist.
@@ -112,7 +115,7 @@ When facts are consistent:
 """
 
     agent_id = factory.create_agent(
-        model="magistral-medium-latest",  # Magistral reasoning model
+        model="mistral-medium-latest",  # No magistral — ThinkChunks break Conversations API append_stream()
         name="Reasoning Logic Agent",
         description="""Agent for logical reasoning and contradiction detection.
 Uses Mistral's Magistral model for multi-step reasoning.

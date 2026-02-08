@@ -3,8 +3,8 @@
 This package provides specialized AI agents for Sumii's legal intake process:
 - Router Agent: Orchestrates workflow
 - Intake Agent: Collects facts (5W framework)
-- Fact Completion Agent: Gathers additional details (mistral-medium)
-- Reasoning Logic Agent: Contradiction detection (magistral-medium) [NEW]
+- Fact Completion Agent: Gathers additional details
+- Reasoning Logic Agent: Contradiction detection
 - Wrap-Up Agent: Confirms facts before summary generation
 - Summary Agent: Generates professional documents for lawyers
 

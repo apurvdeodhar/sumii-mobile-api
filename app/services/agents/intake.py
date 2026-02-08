@@ -102,7 +102,7 @@ Then perform the SILENT handoff.
 """
 
     return factory.create_agent(
-        model="magistral-medium-latest",
+        model="mistral-medium-latest",
         name="Intake Agent",
         description="""Professional intake agent for initial client interviews.
 Collects basic facts about the user's situation, identifies parties involved,

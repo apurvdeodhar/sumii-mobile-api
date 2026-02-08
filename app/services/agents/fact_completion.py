@@ -130,7 +130,7 @@ Then SILENTLY hand off to the Reasoning Logic Agent.
 """
 
     return factory.create_agent(
-        model="magistral-medium-latest",
+        model="mistral-medium-latest",
         name="Facts Agent",
         description="""Thorough fact-gathering agent for detailed case information.
 Uses 7-point interview framework: chronology, documentation, prior communication,

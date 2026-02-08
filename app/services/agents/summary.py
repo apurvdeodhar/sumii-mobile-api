@@ -197,7 +197,7 @@ Zwischen den Parteien besteht ein Mietverhältnis seit 01.01.2022. Die monatlich
 """
 
     return factory.create_agent(
-        model="magistral-medium-latest",
+        model="mistral-medium-latest",
         name="Summary Agent",
         description="""Agent to generate professional factual summaries.
 This agent receives cases AFTER fact collection is complete.
