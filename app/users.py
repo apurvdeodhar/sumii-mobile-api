@@ -3,9 +3,10 @@
 Sets up user management, authentication, and OAuth with fastapi-users library.
 """
 
+import logging
 import uuid
 
-from fastapi import Depends, Request
+from fastapi import Depends, Request, Response
 from fastapi_users import BaseUserManager, FastAPIUsers, UUIDIDMixin, models
 from fastapi_users.authentication import (
     AuthenticationBackend,
@@ -19,6 +20,8 @@ from app.config import settings
 from app.database import get_db
 from app.models.oauth_account import OAuthAccount
 from app.models.user import User
+
+logger = logging.getLogger(__name__)
 
 # OAuth imports (conditional)
 try:
@@ -54,26 +57,55 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
     verification_token_secret = settings.SECRET_KEY
 
     async def on_after_register(self, user: User, request: Request | None = None):
-        """Called after user registration - sends welcome email"""
+        """Called after user registration - sends welcome email + triggers verification"""
         from app.services.email_service import EmailService
 
         email_service = EmailService()
-        # Pass user's preferred language for localized email
-        await email_service.send_welcome_email(user.email, language=user.language or "de")
+        language = user.language or "de"
+        await email_service.send_welcome_email(user.email, language=language)
+
+        # OAuth users are already verified by their provider — skip verification email
+        if user.oauth_accounts:
+            user.is_verified = True
+            await self.user_db.update(user, {"is_verified": True})
+            logger.info(f"OAuth user {user.email} auto-verified")
+        else:
+            try:
+                await self.request_verify(user, request)
+            except Exception as e:
+                logger.warning(f"Failed to send verification email to {user.email}: {e}")
+
+    async def on_after_login(
+        self,
+        user: User,
+        request: Request | None = None,
+        response: Response | None = None,
+    ):
+        """Called after successful login - sends login alert email"""
+        from app.services.email_service import EmailService
+
+        try:
+            email_service = EmailService()
+            await email_service.send_login_alert_email(
+                user.email,
+                language=user.language or "de",
+            )
+        except Exception as e:
+            logger.warning(f"Failed to send login alert email to {user.email}: {e}")
 
     async def on_after_forgot_password(self, user: User, token: str, request: Request | None = None):
         """Send password reset email via AWS SES"""
         from app.services.email_service import EmailService
 
         email_service = EmailService()
-        await email_service.send_password_reset_email(user.email, token)
+        await email_service.send_password_reset_email(user.email, token, language=user.language or "de")
 
     async def on_after_request_verify(self, user: User, token: str, request: Request | None = None):
         """Send email verification link via AWS SES"""
         from app.services.email_service import EmailService
 
         email_service = EmailService()
-        await email_service.send_verification_email(user.email, token)
+        await email_service.send_verification_email(user.email, token, language=user.language or "de")
 
 
 async def get_user_manager(

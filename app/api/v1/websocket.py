@@ -621,8 +621,9 @@ async def process_with_agents(
             )
 
         # Process events from stream (using context manager like cookbook)
-        # Track ALL function calls - agents can call multiple functions at once
+        # Track function calls - only post-handoff calls get sent back to Mistral
         pending_function_calls: list[dict] = []  # Each: {tool_call_id, function_name, arguments}
+        pre_handoff_calls: list[dict] = []  # Function calls from BEFORE the last handoff (execute locally only)
         current_function_call: dict | None = None  # Currently accumulating function call
         event_count = 0  # Track for progress logging
 
@@ -723,6 +724,20 @@ async def process_with_agents(
                     # Update current agent from handoff
                     current_agent_name = getattr(event.data, "next_agent_name", current_agent_name)
                     current_agent_name = current_agent_name.lower().replace(" ", "_").replace("legal_", "")
+                    # CRITICAL: Move pre-handoff function calls aside.
+                    # After a handoff, Mistral only expects results for the NEW agent's calls.
+                    # Pre-handoff calls still get executed locally (side effects) but must NOT
+                    # be sent back via append_stream — that causes error 3230.
+                    if current_function_call:
+                        pending_function_calls.append(current_function_call)
+                        current_function_call = None
+                    if pending_function_calls:
+                        logger.info(
+                            f"🔄 [HANDOFF] Moving {len(pending_function_calls)} pre-handoff function call(s) "
+                            f"to local-only execution"
+                        )
+                        pre_handoff_calls.extend(pending_function_calls)
+                        pending_function_calls = []
                 elif result == "error":
                     logger.error(f"❌ [STREAM] Error after {event_count} events")
                     # Finalize ThinkingSteps so it doesn't stay is_live=True forever
@@ -785,27 +800,41 @@ async def process_with_agents(
 
         logger.info("🔵 [DEBUG] Exited the with block (stream closed)")
         logger.info(
-            f"📡 [STREAM] Stream ended. Total events: {event_count}, Functions pending: {len(pending_function_calls)}"
+            f"📡 [STREAM] Stream ended. Total events: {event_count}, "
+            f"Functions pending: {len(pending_function_calls)}, "
+            f"Pre-handoff (local-only): {len(pre_handoff_calls)}"
         )
 
-        # Handle ALL pending function calls (Mistral requires response for EACH call)
-        # Track if summary generation should be triggered
+        # Process ALL function calls for side effects (WS events, DB updates, etc.)
+        # But ONLY send post-handoff function results back to Mistral.
+        # Pre-handoff calls were from a previous agent — Mistral doesn't expect results for them
+        # after a handoff (error 3230: "Not the same number of function calls and responses").
         trigger_summary_generation = False
         summary_case_data = None
 
         function_results: list[FunctionResultEntry] = []
+        # Merge both lists for local processing; track which IDs to send to Mistral
+        all_function_calls = pre_handoff_calls + pending_function_calls
+        post_handoff_ids = {fc["tool_call_id"] for fc in pending_function_calls}
 
-        if pending_function_calls:
+        if all_function_calls:
             logger.info(f"{'='*40}")
-            logger.info(f"🔧 [FUNC] Processing {len(pending_function_calls)} function call(s)...")
+            logger.info(
+                f"🔧 [FUNC] Processing {len(all_function_calls)} function call(s) "
+                f"({len(pre_handoff_calls)} local-only, {len(pending_function_calls)} to send)..."
+            )
             logger.info(f"{'='*40}")
 
-        for func_call in pending_function_calls:
+        for func_call in all_function_calls:
             tool_call_id = func_call["tool_call_id"]
             function_name = func_call["function_name"]
             arguments = func_call["arguments"]
+            is_post_handoff = tool_call_id in post_handoff_ids
 
-            logger.info(f"🔧 [FUNC] Processing: {function_name} (id: {tool_call_id})")
+            logger.info(
+                f"🔧 [FUNC] Processing: {function_name} (id: {tool_call_id})"
+                f"{'' if is_post_handoff else ' [LOCAL-ONLY, pre-handoff]'}"
+            )
 
             # WRAP-UP: Handle signal_confirmation from Wrap-Up Agent
             if function_name == "signal_confirmation":
@@ -886,15 +915,21 @@ async def process_with_agents(
                     logger.error(f"❌ [SUMMARY] Failed to parse summary arguments: {e}")
                     logger.error(f"[SUMMARY] Raw args: {arguments[:200] if arguments else 'None'}")
 
-            # Build function result for this call
-            logger.info(f"🔵 [DEBUG] Adding function result for: {function_name} (id: {tool_call_id})")
-            function_results.append(
-                FunctionResultEntry(
-                    tool_call_id=tool_call_id,
-                    result=f"Function {function_name} executed successfully. Data collected.",
+            # Only send function results for post-handoff calls
+            # Pre-handoff calls were executed locally but Mistral doesn't expect their results
+            if is_post_handoff:
+                logger.info(f"🔵 [DEBUG] Adding function result for: {function_name} (id: {tool_call_id})")
+                function_results.append(
+                    FunctionResultEntry(
+                        tool_call_id=tool_call_id,
+                        result=f"Function {function_name} executed successfully. Data collected.",
+                    )
                 )
-            )
-            logger.info(f"🔵 [DEBUG] function_results now has {len(function_results)} items")
+                logger.info(f"🔵 [DEBUG] function_results now has {len(function_results)} items")
+            else:
+                logger.info(
+                    f"🔵 [DEBUG] Skipping Mistral result for pre-handoff call: {function_name} (id: {tool_call_id})"
+                )
 
         # Send ALL function results back to Mistral (if any)
         if function_results:
@@ -1165,6 +1200,48 @@ async def process_with_agents(
                         }
                     )
                     logger.info(f"✅ Summary {summary_id} created and sent to client")
+
+                    # Create Notification DB record + send push notification
+                    try:
+                        from app.models.notification import Notification, NotificationType
+
+                        notif_title = "Zusammenfassung bereit" if user_language == "de" else "Summary ready"
+                        notif_message = (
+                            "Ihre rechtliche Zusammenfassung ist verfügbar"
+                            if user_language == "de"
+                            else "Your legal summary is available"
+                        )
+                        notif_data = {
+                            "summary_id": str(new_summary.id),
+                            "conversation_id": str(conversation.id),
+                        }
+
+                        notification = Notification(
+                            user_id=conversation.user_id,
+                            type=NotificationType.SUMMARY_READY,
+                            title=notif_title,
+                            message=notif_message,
+                            data=notif_data,
+                        )
+                        db.add(notification)
+                        await db.commit()
+
+                        # Fetch user for push token
+                        from app.models.user import User
+
+                        user_result = await db.execute(select(User).where(User.id == conversation.user_id))
+                        push_user = user_result.unique().scalar_one_or_none()
+                        if push_user:
+                            from app.services.push_service import push_service
+
+                            await push_service.send_to_user(
+                                push_user,
+                                title=notif_title,
+                                body=notif_message,
+                                data=notif_data,
+                            )
+                    except Exception as notif_err:
+                        logger.warning(f"Push notification for summary failed: {notif_err}")
 
                     # Complete summary step and mark ThinkingSteps as finished
                     if thinking_steps:
