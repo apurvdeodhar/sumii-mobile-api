@@ -4,7 +4,6 @@ Registration, login, email verification, password reset, and OAuth
 """
 
 import logging
-from datetime import timedelta
 from typing import Annotated
 
 import httpx
@@ -14,8 +13,14 @@ from pydantic import BaseModel
 from app.config import settings
 from app.models.user import User
 from app.schemas.user import UserCreate, UserRead
-from app.users import auth_backend, current_active_user, fastapi_users, get_user_manager, google_oauth_client
-from app.utils.security import create_access_token
+from app.users import (
+    auth_backend,
+    current_active_user,
+    fastapi_users,
+    get_jwt_strategy,
+    get_user_manager,
+    google_oauth_client,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -74,19 +79,14 @@ async def refresh_token(
 
     Returns new access token with full TTL (7 days).
     """
-    # Calculate expiration
-    expires_delta = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
-
-    # Create new token
-    new_token = create_access_token(
-        data={"sub": str(current_user.id)},
-        expires_delta=expires_delta,
-    )
+    # Create new token using fastapi-users' strategy (includes aud: "fastapi-users:auth")
+    strategy = get_jwt_strategy()
+    new_token = await strategy.write_token(current_user)
 
     return TokenResponse(
         access_token=new_token,
         token_type="bearer",
-        expires_in=int(expires_delta.total_seconds()),
+        expires_in=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
     )
 
 
@@ -182,12 +182,9 @@ async def google_mobile_auth(
     finally:
         await db_gen.aclose()
 
-    # Generate JWT
-    expires_delta = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
-    token = create_access_token(
-        data={"sub": str(user.id)},
-        expires_delta=expires_delta,
-    )
+    # Generate JWT using fastapi-users' strategy (includes aud: "fastapi-users:auth")
+    strategy = get_jwt_strategy()
+    token = await strategy.write_token(user)
 
     # Send login alert (non-blocking)
     try:
@@ -201,5 +198,5 @@ async def google_mobile_auth(
     return TokenResponse(
         access_token=token,
         token_type="bearer",
-        expires_in=int(expires_delta.total_seconds()),
+        expires_in=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
     )
