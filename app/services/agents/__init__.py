@@ -115,9 +115,11 @@ def _ensure_version_bumped(
         return False
 
     # No-op description update to bump version, and mark as bumped in metadata
+    new_metadata = {**existing_metadata, "version_bumped": "true"}
     client.beta.agents.update(
         agent_id=agent_id,
         description=agent.description or "",
+        metadata=new_metadata,
     )
     logger.debug(f"Agent {agent_id} version bumped to match handoff chain")
     return True
@@ -239,13 +241,24 @@ class MistralAgentsService:
         self._logger.info("✅ [AGENTS] All 6 agents initialized successfully!")
         self._logger.debug(f"[AGENTS] Agent IDs: {self.agents}")
 
-        # Verify agent models by querying Mistral API
+        # Verify agent models and versions by querying Mistral API
+        versions = {}
         for name, agent_id in self.agents.items():
             try:
                 agent = client.beta.agents.get(agent_id=agent_id)
-                self._logger.info(f"  [VERIFY] {name}: model={agent.model}, id={agent_id}")
+                version = getattr(agent, "version", "?")
+                versions[name] = version
+                self._logger.info(f"  [VERIFY] {name}: model={agent.model}, version=v{version}, id={agent_id}")
             except Exception as e:
                 self._logger.warning(f"  [VERIFY] {name}: failed to verify - {e}")
+
+        # Warn if agent versions are inconsistent (can cause error 3000 on handoffs)
+        unique_versions = set(versions.values())
+        if len(unique_versions) > 1:
+            self._logger.warning(
+                f"⚠️ [AGENTS] Version mismatch detected! Versions: {versions}. "
+                "This may cause error 3000 during handoffs. Consider resetting agents."
+            )
 
         return self.agents
 
