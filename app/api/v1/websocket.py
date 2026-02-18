@@ -8,7 +8,6 @@ import asyncio
 import json
 import logging
 import re
-import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from typing import Any
@@ -566,6 +565,113 @@ async def _process_single_event(
                 logger.debug(f"[EVENT] Stream completion detected via event type: {event_type}")
                 return "done"
             return None
+
+
+async def _handle_function_call(
+    function_name: str,
+    arguments: str,
+    tool_call_id: str,
+    conversation: Any,
+    websocket: WebSocket,
+    user: Any,
+    logger: logging.Logger,
+) -> tuple[FunctionResultEntry, dict | None, bool]:
+    """Process a single function call and return the result to send back to Mistral.
+
+    Handles signal_confirmation, track_documents, generate_summary, and
+    any other function calls (check_completeness, etc.) generically.
+
+    Returns:
+        (result_entry, summary_case_data, trigger_summary)
+        - result_entry: FunctionResultEntry to send back to Mistral
+        - summary_case_data: parsed summary data if generate_summary, else None
+        - trigger_summary: True if summary generation should be triggered
+    """
+    summary_case_data = None
+    trigger_summary = False
+
+    if function_name == "signal_confirmation":
+        logger.info(f"✅ [WRAPUP] signal_confirmation called for conversation {conversation.id}")
+        try:
+            confirmation_data = json.loads(arguments) if arguments else {}
+            is_confirmed = confirmation_data.get("confirmed", False)
+            user_summary = confirmation_data.get("user_response_summary", "")
+            corrections = confirmation_data.get("corrections_needed", "")
+
+            logger.info(f"[WRAPUP] Confirmed: {is_confirmed}, Response: {user_summary}")
+
+            await websocket.send_json(
+                {
+                    "type": "confirmation_received",
+                    "confirmed": is_confirmed,
+                    "user_response": user_summary,
+                    "corrections_needed": corrections if not is_confirmed else None,
+                    "conversation_id": str(conversation.id),
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                }
+            )
+        except json.JSONDecodeError as e:
+            logger.error(f"Failed to parse confirmation arguments: {e}")
+            logger.error(f"[CONFIRM] Raw args: {arguments[:200] if arguments else 'None'}")
+
+    elif function_name == "track_documents":
+        logger.info(f"📋 [WRAPUP] track_documents called for conversation {conversation.id}")
+        try:
+            document_tracking_data = json.loads(arguments) if arguments else {}
+            docs = document_tracking_data.get("documents", [])
+            missing = document_tracking_data.get("missing_critical_documents", [])
+            summary = document_tracking_data.get("evidence_summary", "")
+
+            logger.info(f"[WRAPUP] Tracked {len(docs)} documents, {len(missing)} missing")
+
+            if hasattr(conversation, "document_tracker"):
+                conversation.document_tracker = document_tracking_data
+
+            await websocket.send_json(
+                {
+                    "type": "documents_tracked",
+                    "document_count": len(docs),
+                    "missing_count": len(missing),
+                    "evidence_summary": summary,
+                    "conversation_id": str(conversation.id),
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                }
+            )
+        except json.JSONDecodeError as e:
+            logger.error(f"Failed to parse document tracking arguments: {e}")
+            logger.error(f"[TRACK_DOCS] Raw args: {arguments[:200] if arguments else 'None'}")
+
+    elif function_name == "generate_summary":
+        logger.info(f"📝 AUTO-TRIGGER: Summary generation for conversation {conversation.id}")
+        logger.debug(f"[SUMMARY] Arguments length: {len(arguments) if arguments else 0} chars")
+
+        await websocket.send_json(
+            {
+                "type": "summary_generating",
+                "conversation_id": str(conversation.id),
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            }
+        )
+
+        try:
+            raw_args = json.loads(arguments) if arguments else {}
+            validated = validate_and_enrich_summary(raw_args, user=user)
+            summary_case_data = validated.model_dump()
+            trigger_summary = True
+            logger.info(f"[SUMMARY] ✅ Validated data, keys: {list(summary_case_data.keys())}")
+        except json.JSONDecodeError as e:
+            logger.error(f"❌ [SUMMARY] Failed to parse summary arguments: {e}")
+            logger.error(f"[SUMMARY] Raw args: {arguments[:200] if arguments else 'None'}")
+
+    else:
+        logger.info(f"🔧 [FUNC] Generic function call: {function_name}")
+
+    result_entry = FunctionResultEntry(
+        tool_call_id=tool_call_id,
+        result=f"Function {function_name} executed successfully. Data collected.",
+    )
+
+    return result_entry, summary_case_data, trigger_summary
 
 
 async def _generate_summary_background(
@@ -1347,272 +1453,202 @@ async def process_with_agents(
 
         for func_call in all_function_calls:
             tool_call_id = func_call["tool_call_id"]
-            function_name = func_call["function_name"]
+            fn_name = func_call["function_name"]
             arguments = func_call["arguments"]
             is_post_handoff = tool_call_id in post_handoff_ids
 
             logger.info(
-                f"🔧 [FUNC] Processing: {function_name} (id: {tool_call_id})"
+                f"🔧 [FUNC] Processing: {fn_name} (id: {tool_call_id})"
                 f"{'' if is_post_handoff else ' [LOCAL-ONLY, pre-handoff]'}"
             )
 
-            # WRAP-UP: Handle signal_confirmation from Wrap-Up Agent
-            if function_name == "signal_confirmation":
-                logger.info(f"✅ [WRAPUP] signal_confirmation called for conversation {conversation.id}")
-                try:
-                    confirmation_data = json.loads(arguments) if arguments else {}
-                    is_confirmed = confirmation_data.get("confirmed", False)
-                    user_summary = confirmation_data.get("user_response_summary", "")
-                    corrections = confirmation_data.get("corrections_needed", "")
+            result_entry, case_data, should_trigger = await _handle_function_call(
+                fn_name, arguments, tool_call_id, conversation, websocket, user, logger
+            )
 
-                    logger.info(f"[WRAPUP] Confirmed: {is_confirmed}, Response: {user_summary}")
-
-                    # Send confirmation event to client
-                    await websocket.send_json(
-                        {
-                            "type": "confirmation_received",
-                            "confirmed": is_confirmed,
-                            "user_response": user_summary,
-                            "corrections_needed": corrections if not is_confirmed else None,
-                            "conversation_id": str(conversation.id),
-                            "timestamp": datetime.now(timezone.utc).isoformat(),
-                        }
-                    )
-                except json.JSONDecodeError as e:
-                    logger.error(f"Failed to parse confirmation arguments: {e}")
-                    logger.error(f"[CONFIRM] Raw args: {arguments[:200] if arguments else 'None'}")
-
-            # WRAP-UP: Handle track_documents from Wrap-Up Agent
-            elif function_name == "track_documents":
-                logger.info(f"📋 [WRAPUP] track_documents called for conversation {conversation.id}")
-                try:
-                    document_tracking_data = json.loads(arguments) if arguments else {}
-                    docs = document_tracking_data.get("documents", [])
-                    missing = document_tracking_data.get("missing_critical_documents", [])
-                    summary = document_tracking_data.get("evidence_summary", "")
-
-                    logger.info(f"[WRAPUP] Tracked {len(docs)} documents, {len(missing)} missing")
-
-                    # Store document tracking in conversation
-                    if hasattr(conversation, "document_tracker"):
-                        conversation.document_tracker = document_tracking_data
-
-                    # Send document tracking event to client
-                    await websocket.send_json(
-                        {
-                            "type": "documents_tracked",
-                            "document_count": len(docs),
-                            "missing_count": len(missing),
-                            "evidence_summary": summary,
-                            "conversation_id": str(conversation.id),
-                            "timestamp": datetime.now(timezone.utc).isoformat(),
-                        }
-                    )
-                except json.JSONDecodeError as e:
-                    logger.error(f"Failed to parse document tracking arguments: {e}")
-                    logger.error(f"[TRACK_DOCS] Raw args: {arguments[:200] if arguments else 'None'}")
-
-            # Summary Agent: Handle generate_summary
-            elif function_name == "generate_summary":
-                logger.info(f"📝 AUTO-TRIGGER: Summary generation for conversation {conversation.id}")
-                logger.debug(f"[SUMMARY] Arguments length: {len(arguments) if arguments else 0} chars")
-
-                await websocket.send_json(
-                    {
-                        "type": "summary_generating",
-                        "conversation_id": str(conversation.id),
-                        "timestamp": datetime.now(timezone.utc).isoformat(),
-                    }
-                )
-                logger.debug("[SUMMARY] Sent summary_generating event to client")
-
-                try:
-                    raw_args = json.loads(arguments) if arguments else {}
-
-                    # Validate with Pydantic and auto-fill from user profile
-                    validated = validate_and_enrich_summary(raw_args, user=user)
-                    summary_case_data = validated.model_dump()
-
-                    trigger_summary_generation = True
-                    logger.info(f"[SUMMARY] ✅ Validated data, keys: {list(summary_case_data.keys())}")
-                    logger.info(f"[SUMMARY] trigger_summary_generation={trigger_summary_generation}")
-                except json.JSONDecodeError as e:
-                    logger.error(f"❌ [SUMMARY] Failed to parse summary arguments: {e}")
-                    logger.error(f"[SUMMARY] Raw args: {arguments[:200] if arguments else 'None'}")
+            if should_trigger:
+                trigger_summary_generation = True
+                summary_case_data = case_data
 
             # Only send function results for post-handoff calls
             # Pre-handoff calls were executed locally but Mistral doesn't expect their results
             if is_post_handoff:
-                logger.info(f"🔵 [DEBUG] Adding function result for: {function_name} (id: {tool_call_id})")
-                function_results.append(
-                    FunctionResultEntry(
-                        tool_call_id=tool_call_id,
-                        result=f"Function {function_name} executed successfully. Data collected.",
-                    )
-                )
-                logger.info(f"🔵 [DEBUG] function_results now has {len(function_results)} items")
+                function_results.append(result_entry)
+                logger.info(f"🔵 [DEBUG] Added result for {fn_name}, total: {len(function_results)}")
             else:
-                logger.info(
-                    f"🔵 [DEBUG] Skipping Mistral result for pre-handoff call: {function_name} (id: {tool_call_id})"
-                )
+                logger.info(f"🔵 [DEBUG] Skipping Mistral result for pre-handoff call: {fn_name}")
 
-        # Send ALL function results back to Mistral (if any)
+        # Send function results back to Mistral and process continuation streams.
+        # CRITICAL: This is a LOOP — continuation streams can produce MORE function calls
+        # (e.g. wrap-up calls check_completeness → track_documents → text → signal_confirmation → handoff).
+        # Each round sends results back, gets a new continuation, and repeats until no more calls.
+        max_continuation_depth = 5
+        continuation_depth = 0
+        continuation = None
+
         if function_results:
-            func_names = [fr.tool_call_id for fr in function_results]
-            logger.info(f"📤 [FUNC] Preparing to send {len(function_results)} function result(s) back to Mistral")
-            logger.info(f"📤 [FUNC] Function IDs: {func_names}")
+            func_ids = [fr.tool_call_id for fr in function_results]
+            logger.info(f"📤 [FUNC] Sending {len(function_results)} result(s) back to Mistral: {func_ids}")
 
             conv_id = conversation.mistral_conversation_id
             if conv_id:
-                send_start_time = time.time()
-                logger.info(f"⏱️ [TIMING] Starting append_stream at {send_start_time:.3f}")
-                logger.info(f"⏱️ [TIMING] Conversation ID: {conv_id}")
                 try:
-                    logger.info(f"[FUNC] Calling append_stream with conversation_id={conv_id}...")
                     continuation = client.beta.conversations.append_stream(
                         conversation_id=conv_id,
-                        inputs=function_results,  # Send ALL results at once
+                        inputs=function_results,
                     )
-                    send_duration = time.time() - send_start_time
-                    logger.info(f"[FUNC] ✅ append_stream succeeded in {send_duration:.3f}s")
+                    logger.info("[FUNC] ✅ append_stream succeeded")
                 except Exception as e:
-                    error_duration = time.time() - send_start_time
-                    logger.error(f"❌ [MISTRAL] append FAILED after {error_duration:.3f}s: {e}")
-                    logger.error(f"❌ [MISTRAL] Full error details: {repr(e)}")
+                    logger.error(f"❌ [MISTRAL] append FAILED: {e}")
                     if "404" in str(e) or "not found" in str(e).lower() or "does not have a version" in str(e).lower():
                         logger.warning(f"⚠️ [MISTRAL] Conversation {conv_id} is stale/invalid. Clearing ID.")
-                        logger.warning(f"⚠️ [MISTRAL] Function results that failed to send: {func_names}")
                         conversation.mistral_conversation_id = None
                         await db.commit()
-                        # Set continuation to None so we don't try to process it
                         continuation = None
-                        logger.info(
-                            "[MISTRAL] Skipping continuation stream due to 404, will process local functions if any"
-                        )
                     else:
                         raise
 
-                # Process continuation events (only if we have a valid continuation)
-                # CRITICAL: Must also handle function calls in continuation stream!
-                # The summary_agent calls generate_summary here, and we need to accumulate those calls.
-                if continuation:
-                    cont_function_call: dict | None = None
-                    cont_pending_calls: list[dict] = []
+        # Continuation loop — keeps chaining function call results back to Mistral
+        while continuation and continuation_depth < max_continuation_depth:
+            continuation_depth += 1
+            logger.info(f"🔄 [CONT] Starting continuation depth={continuation_depth}")
 
-                    with continuation as cont_stream:
-                        for cont_event in cont_stream:
-                            cont_result = await _process_single_event(
-                                cont_event,
-                                websocket,
-                                full_response_parts,
-                                current_agent_name,
-                                conversation,
-                                db,
-                                thinking_steps,
-                                user_language,
-                                stream_state,
+            cont_function_call: dict | None = None
+            cont_pending_calls: list[dict] = []
+
+            with continuation as cont_stream:
+                for cont_event in cont_stream:
+                    cont_result = await _process_single_event(
+                        cont_event,
+                        websocket,
+                        full_response_parts,
+                        current_agent_name,
+                        conversation,
+                        db,
+                        thinking_steps,
+                        user_language,
+                        stream_state,
+                    )
+                    if cont_result == "handoff":
+                        current_agent_name = getattr(cont_event.data, "next_agent_name", current_agent_name)
+                        current_agent_name = current_agent_name.lower().replace(" ", "_").replace("legal_", "")
+                    elif cont_result == "done":
+                        break
+                    elif cont_result == "error":
+                        logger.error(f"❌ [CONT] Error at depth={continuation_depth}")
+                        if thinking_steps:
+                            preview = (
+                                stream_state["text_accumulator"][-120:]
+                                if stream_state.get("text_accumulator")
+                                else None
                             )
-                            if cont_result == "handoff":
-                                current_agent_name = getattr(cont_event.data, "next_agent_name", current_agent_name)
-                                current_agent_name = current_agent_name.lower().replace(" ", "_").replace("legal_", "")
-                            elif cont_result == "done":
-                                break
-                            elif cont_result == "error":
-                                logger.error("❌ [CONT_STREAM] Error in continuation stream")
-                                # Finalize ThinkingSteps so it doesn't stay is_live=True forever
-                                if thinking_steps:
-                                    preview = (
-                                        stream_state["text_accumulator"][-120:]
-                                        if stream_state.get("text_accumulator")
-                                        else None
-                                    )
-                                    await complete_agent_step(
-                                        db, thinking_steps, current_agent_name, preview_text=preview
-                                    )
-                                    thinking_steps.is_live = False
-                                    thinking_steps.completed_at = datetime.now(timezone.utc)
-                                    db.add(thinking_steps)
-                                    await db.commit()
-                                await websocket.send_json(
-                                    {
-                                        "type": "thinking_complete",
-                                        "data": {"error": True},
-                                        "timestamp": datetime.now(timezone.utc).isoformat(),
-                                    }
-                                )
-                                return
-                            elif isinstance(cont_result, tuple) and cont_result[0] == "function_call":
-                                # Handle function calls in continuation stream (same logic as main stream)
-                                new_tool_call_id = cont_result[1]
-                                new_function_name = cont_result[2]
-                                new_arguments = cont_result[3] or ""
-
-                                if cont_function_call is None:
-                                    logger.debug(f"[CONT_FUNC] NEW continuation function call: {new_function_name}")
-                                    cont_function_call = {
-                                        "tool_call_id": new_tool_call_id,
-                                        "function_name": new_function_name,
-                                        "arguments": new_arguments,
-                                    }
-                                elif cont_function_call["tool_call_id"] == new_tool_call_id:
-                                    # Continuing SAME function call - append arguments
-                                    cont_function_call["arguments"] += new_arguments
-                                else:
-                                    # Different function - save old one, start new one
-                                    logger.info(
-                                        f"📦 [CONT_FUNC] Saved continuation function call: "
-                                        f"{cont_function_call['function_name']} "
-                                        f"(args: {len(cont_function_call['arguments'])} chars)"
-                                    )
-                                    cont_pending_calls.append(cont_function_call)
-                                    cont_function_call = {
-                                        "tool_call_id": new_tool_call_id,
-                                        "function_name": new_function_name,
-                                        "arguments": new_arguments,
-                                    }
-
-                    # Don't forget the last function call from continuation
-                    if cont_function_call:
-                        cont_pending_calls.append(cont_function_call)
-                        logger.info(
-                            f"📦 [CONT_FUNC] Saved final continuation function call: "
-                            f"{cont_function_call['function_name']} "
-                            f"(args: {len(cont_function_call['arguments'])} chars)"
+                            await complete_agent_step(db, thinking_steps, current_agent_name, preview_text=preview)
+                            thinking_steps.is_live = False
+                            thinking_steps.completed_at = datetime.now(timezone.utc)
+                            db.add(thinking_steps)
+                            await db.commit()
+                        await websocket.send_json(
+                            {
+                                "type": "thinking_complete",
+                                "data": {"error": True},
+                                "timestamp": datetime.now(timezone.utc).isoformat(),
+                            }
                         )
+                        return
+                    elif isinstance(cont_result, tuple) and cont_result[0] == "function_call":
+                        new_tool_call_id = cont_result[1]
+                        new_function_name = cont_result[2]
+                        new_arguments = cont_result[3] or ""
 
-                    # Process continuation function calls (especially generate_summary!)
-                    if cont_pending_calls:
-                        logger.info(
-                            f"🔧 [CONT_FUNC] Processing {len(cont_pending_calls)} continuation function call(s)"
-                        )
+                        if cont_function_call is None:
+                            cont_function_call = {
+                                "tool_call_id": new_tool_call_id,
+                                "function_name": new_function_name,
+                                "arguments": new_arguments,
+                            }
+                        elif cont_function_call["tool_call_id"] == new_tool_call_id:
+                            cont_function_call["arguments"] += new_arguments
+                        else:
+                            cont_pending_calls.append(cont_function_call)
+                            cont_function_call = {
+                                "tool_call_id": new_tool_call_id,
+                                "function_name": new_function_name,
+                                "arguments": new_arguments,
+                            }
 
-                        for func_call in cont_pending_calls:
-                            function_name = func_call["function_name"]
-                            arguments = func_call["arguments"]
+            # Flush last accumulated function call
+            if cont_function_call:
+                cont_pending_calls.append(cont_function_call)
 
-                            logger.info(f"🔧 [CONT_FUNC] Processing: {function_name}")
+            if not cont_pending_calls:
+                logger.info(f"🔄 [CONT] No function calls at depth={continuation_depth}, done")
+                continuation = None
+                break
 
-                            if function_name == "generate_summary":
-                                logger.info("📝 [CONT_FUNC] AUTO-TRIGGER: Summary generation from continuation stream")
-                                await websocket.send_json(
-                                    {
-                                        "type": "summary_generating",
-                                        "conversation_id": str(conversation.id),
-                                        "timestamp": datetime.now(timezone.utc).isoformat(),
-                                    }
-                                )
-                                try:
-                                    summary_case_data = json.loads(arguments) if arguments else {}
-                                    trigger_summary_generation = True
-                                    logger.info(
-                                        f"[CONT_FUNC] ✅ Summary data parsed, keys: {list(summary_case_data.keys())}"
-                                    )
-                                except json.JSONDecodeError as e:
-                                    logger.error(f"❌ [CONT_FUNC] Failed to parse summary arguments: {e}")
+            # Process ALL continuation function calls via the shared helper
+            logger.info(
+                f"🔧 [CONT] Processing {len(cont_pending_calls)} function call(s) at depth={continuation_depth}"
+            )
+            cont_results: list[FunctionResultEntry] = []
+            for fc in cont_pending_calls:
+                logger.info(f"🔧 [CONT] Processing: {fc['function_name']} (depth={continuation_depth})")
+                result_entry, case_data, should_trigger = await _handle_function_call(
+                    fc["function_name"],
+                    fc["arguments"],
+                    fc["tool_call_id"],
+                    conversation,
+                    websocket,
+                    user,
+                    logger,
+                )
+                if should_trigger:
+                    trigger_summary_generation = True
+                    summary_case_data = case_data
+                # generate_summary is terminal — no result to send back
+                if not should_trigger:
+                    cont_results.append(result_entry)
+
+            # Send results back to Mistral for next continuation round
+            if cont_results and conversation.mistral_conversation_id:
+                try:
+                    continuation = client.beta.conversations.append_stream(
+                        conversation_id=conversation.mistral_conversation_id,
+                        inputs=cont_results,
+                    )
+                    logger.info(f"📤 [CONT] Sent {len(cont_results)} result(s), depth={continuation_depth}")
+                except Exception as e:
+                    logger.error(f"❌ [CONT] append_stream depth={continuation_depth}: {e}")
+                    if "404" in str(e) or "not found" in str(e).lower() or "does not have a version" in str(e).lower():
+                        conversation.mistral_conversation_id = None
+                        await db.commit()
+                    continuation = None
+            else:
+                continuation = None
+
+        if continuation_depth >= max_continuation_depth:
+            logger.warning(f"⚠️ [CONT] Hit max continuation depth ({max_continuation_depth})")
 
         # Combine response chunks and do a final sanitization pass
         # (catches agent names split across streaming chunks)
         full_response = sanitize_agent_text("".join(full_response_parts))
+
+        # Finalize ThinkingSteps BEFORE message_complete so the mobile app
+        # dismisses the ThinkingBubble before showing the chat bubble.
+        if thinking_steps:
+            preview = stream_state["text_accumulator"][-120:] if stream_state.get("text_accumulator") else None
+            await complete_agent_step(db, thinking_steps, current_agent_name, preview_text=preview)
+            thinking_steps.is_live = False
+            thinking_steps.completed_at = datetime.now(timezone.utc)
+            db.add(thinking_steps)
+            await db.commit()
+
+            await websocket.send_json(
+                {
+                    "type": "thinking_complete",
+                    "data": {"error": False},
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                }
+            )
 
         # Save AI message to database
         if full_response:
@@ -1641,11 +1677,6 @@ async def process_with_agents(
                     "timestamp": ai_message.created_at.isoformat(),
                 }
             )
-
-        # Persist preview_text for the last agent's step on stream completion
-        if thinking_steps:
-            preview = stream_state["text_accumulator"][-120:] if stream_state.get("text_accumulator") else None
-            await complete_agent_step(db, thinking_steps, current_agent_name, preview_text=preview)
 
         # Update conversation metadata
         conversation.current_agent = current_agent_name
