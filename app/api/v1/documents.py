@@ -145,6 +145,24 @@ async def upload_document(
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Upload failed: {str(e)}")
 
 
+@router.get("/user/me", response_model=DocumentListResponse)
+async def list_user_documents(
+    current_user: User = Depends(current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """List all documents for the current user across all conversations
+
+    Returns:
+        DocumentListResponse with list of documents ordered by created_at desc
+    """
+    result = await db.execute(
+        select(Document).where(Document.user_id == current_user.id).order_by(Document.created_at.desc())
+    )
+    documents = result.scalars().all()
+
+    return DocumentListResponse(documents=list(documents), total=len(documents))
+
+
 @router.get("/{document_id}", response_model=DocumentResponse)
 async def get_document(
     document_id: UUID,
@@ -215,6 +233,77 @@ async def list_conversation_documents(
     documents = result.scalars().all()
 
     return DocumentListResponse(documents=list(documents), total=len(documents))
+
+
+@router.post("/{document_id}/retry-ocr", response_model=DocumentResponse)
+async def retry_ocr(
+    document_id: UUID,
+    current_user: User = Depends(current_active_user),
+    db: AsyncSession = Depends(get_db),
+    storage_service: StorageService = Depends(get_storage_service),
+):
+    """Retry OCR for a failed or pending document
+
+    Downloads the file from S3 and re-runs OCR.
+
+    Args:
+        document_id: Document UUID
+
+    Returns:
+        Updated DocumentResponse
+
+    Raises:
+        400: OCR already completed or upload not finished
+        403: User doesn't own this document
+        404: Document not found
+    """
+    result = await db.execute(select(Document).where(Document.id == document_id))
+    document = result.scalar_one_or_none()
+
+    if not document:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
+
+    if document.user_id != current_user.id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to access this document")
+
+    if document.ocr_status not in (OCRStatus.FAILED, OCRStatus.PENDING):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"OCR retry only available for failed or pending documents (current: {document.ocr_status.value})",
+        )
+
+    if document.upload_status != UploadStatus.COMPLETED:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cannot retry OCR — document upload is not complete",
+        )
+
+    # Set to processing
+    document.ocr_status = OCRStatus.PROCESSING
+    await db.commit()
+
+    try:
+        # Download file from S3
+        file_content = storage_service.download_document(document.s3_key)
+
+        # Run OCR
+        from app.services.ocr_service import get_ocr_service
+
+        ocr_service = get_ocr_service()
+        ocr_text = await ocr_service.extract_text_from_bytes(
+            file_content=file_content,
+            file_type=document.file_type,
+            filename=document.filename,
+        )
+        document.ocr_text = ocr_text
+        document.ocr_status = OCRStatus.COMPLETED
+    except Exception as e:
+        print(f"OCR retry failed for document {document.id}: {e}")
+        document.ocr_status = OCRStatus.FAILED
+
+    await db.commit()
+    await db.refresh(document)
+    return document
 
 
 @router.delete("/{document_id}", status_code=status.HTTP_204_NO_CONTENT)
