@@ -5,17 +5,15 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Fallzusammenfassung - {% if is_lawyer_view %}{{ summary_id | default_if_empty("Mandant") }}{% else %}{{ case_data.claimant.name | default_if_empty("Mandant") }}{% endif %}</title>
     <style>
-      /* Sumii Urban Color Palette - Professional & Clean */
+      /* Sumii Silent + Metztli Brand System */
       :root {
-        --sumii-primary: #34495e;
-        --sumii-secondary: #7b8d9f;
-        --sumii-accent-pink: #f342ad;
-        --sumii-accent-green: #5fc99e;
-        --sumii-accent-blue: #809ddc;
-        --sumii-light: #f8f9fa;
-        --sumii-border: #e9ecef;
-        --sumii-text: #2c3e50;
-        --sumii-muted: #6c757d;
+        --sumii-primary: #283747;    /* navy */
+        --sumii-secondary: #5E748D;  /* slate (accent) */
+        --sumii-accent-sky: #A0BCCB; /* sky (dark-mode accent, used sparingly) */
+        --sumii-light: #F2F1F0;      /* snow */
+        --sumii-border: #D0D3D4;     /* fog */
+        --sumii-text: #283747;       /* navy */
+        --sumii-muted: #A6ACBE;      /* lavender */
       }
 
       @page {
@@ -45,8 +43,8 @@
 
       /* AI Disclaimer Banner */
       .ai-disclaimer {
-        background: linear-gradient(135deg, rgba(243, 66, 173, 0.08) 0%, rgba(95, 201, 158, 0.08) 50%, rgba(128, 157, 220, 0.08) 100%);
-        border: 1px solid rgba(52, 73, 94, 0.2);
+        background: linear-gradient(135deg, rgba(94, 116, 141, 0.08) 0%, rgba(160, 188, 203, 0.10) 50%, rgba(40, 55, 71, 0.06) 100%);
+        border: 1px solid rgba(40, 55, 71, 0.15);
         border-radius: 8px;
         padding: 12px 20px;
         margin-bottom: 20px;
@@ -80,7 +78,7 @@
       .logo-section .logo-text {
         font-size: 32pt;
         font-weight: 700;
-        color: #34495e;
+        color: #283747;
       }
 
       .header-text {
@@ -279,7 +277,7 @@
       .legal-disclaimer {
         margin-top: 30px;
         padding: 20px;
-        background-color: #f8f9fa;
+        background-color: var(--sumii-light);
         border: 1px solid var(--sumii-border);
         border-radius: 4px;
         font-size: 9pt;
@@ -309,8 +307,8 @@
 
       /* Next Steps Box */
       .next-steps {
-        background-color: #e8f5e9;
-        border: 1px solid #a5d6a7;
+        background-color: rgba(94, 116, 141, 0.08);
+        border: 1px solid rgba(94, 116, 141, 0.25);
         border-radius: 4px;
         padding: 15px;
         margin: 15px 0;
@@ -416,6 +414,18 @@
           </tr>
           {% endif %}
         {% endif %}
+        {% if case_data.claimant.date_of_birth and case_data.claimant.date_of_birth != "k. A." %}
+        <tr>
+          <td class="label">Geburtsdatum:</td>
+          <td class="value">{{ case_data.claimant.date_of_birth }}</td>
+        </tr>
+        {% endif %}
+        {% if case_data.claimant.occupation and case_data.claimant.occupation != "k. A." %}
+        <tr>
+          <td class="label">Beruf:</td>
+          <td class="value">{{ case_data.claimant.occupation }}</td>
+        </tr>
+        {% endif %}
       </table>
     </div>
 
@@ -492,6 +502,24 @@
         {% endif %}
       </div>
       {% endfor %} {% endif %}
+
+      {% if case_data.factual_narrative.prior_legal_steps %}
+      <h3>Bisherige rechtliche Schritte</h3>
+      <p>{{ case_data.factual_narrative.prior_legal_steps }}</p>
+      {% endif %}
+
+      {% if case_data.factual_narrative.witnesses %}
+      <h3>Zeugen</h3>
+      <ul>
+        {% for witness in case_data.factual_narrative.witnesses %}
+        <li>{{ witness }}</li>
+        {% endfor %}
+      </ul>
+      {% endif %}
+
+      {% if case_data.factual_narrative.jurisdiction and case_data.factual_narrative.jurisdiction != "k. A." %}
+      <p><strong>Zuständiges Gericht:</strong> {{ case_data.factual_narrative.jurisdiction }}</p>
+      {% endif %}
     </div>
 
     <!-- Beweisverzeichnis -->
@@ -521,6 +549,35 @@
         </li>
         {% endfor %}
       </ol>
+    </div>
+    {% endif %}
+
+    <!-- Bekannte Fristen -->
+    {% if case_data.metadata.deadline_info %}
+    <div class="section">
+      <h2>Bekannte Fristen</h2>
+      <p>{{ case_data.metadata.deadline_info }}</p>
+    </div>
+    {% endif %}
+
+    <!-- Finanzielle Angaben -->
+    {% if case_data.financial_info and (case_data.financial_info.claim_value_eur or case_data.financial_info.claim_description) %}
+    <div class="section">
+      <h2>Finanzielle Angaben</h2>
+      <table class="info-table">
+        {% if case_data.financial_info.claim_value_eur %}
+        <tr>
+          <td class="label">Streitwert:</td>
+          <td class="value">{{ case_data.financial_info.claim_value_eur }} EUR</td>
+        </tr>
+        {% endif %}
+        {% if case_data.financial_info.claim_description %}
+        <tr>
+          <td class="label">Beschreibung:</td>
+          <td class="value">{{ case_data.financial_info.claim_description }}</td>
+        </tr>
+        {% endif %}
+      </table>
     </div>
     {% endif %}
 
@@ -564,6 +621,22 @@
         der DSGVO. Alle Informationen werden vertraulich behandelt.
       </p>
     </div>
+
+    <!-- Anlagen (Document Appendix Index) -->
+    {% if attached_documents %}
+    <div class="section" style="page-break-before: always;">
+      <h2>Anlagen</h2>
+      <p>Die folgenden Dokumente wurden vom Mandanten hochgeladen und sind diesem Bericht als Anlagen beigefügt:</p>
+      <table class="info-table">
+        {% for doc in attached_documents %}
+        <tr>
+          <td class="label">Anlage {{ loop.index }}:</td>
+          <td class="value">{{ doc.filename }}</td>
+        </tr>
+        {% endfor %}
+      </table>
+    </div>
+    {% endif %}
 
     <!-- Footer with sumii.de links -->
     <div class="footer-info">
