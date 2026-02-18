@@ -95,10 +95,13 @@ You MUST call the generate_summary function with ALL of these fields:
 2. **client_profile**: {{name, address, contact}} from MANDANTENPROFIL
 3. **claimant**: {{name, role}} — the person seeking legal help
 4. **respondent**: {{name, role, address, contact}} — the opposing party
-5. **factual_narrative**: {{claimant_goal, party_relationship, chronological_timeline}}
+5. **factual_narrative**: {{claimant_goal, party_relationship, chronological_timeline,
+   prior_legal_steps, witnesses, jurisdiction}}
 6. **evidence**: {{evidence_items}} — each with anlage_number, document_type, ocr_extracted_data
-7. **financial_info**: {{claim_value_eur, claim_description}} if applicable
-8. **metadata**: {{legal_area, urgency, case_date}}
+7. **financial_info**: {{claim_value_eur, claim_description}} —
+   MUST populate if discussed
+8. **metadata**: {{legal_area, urgency, case_date, deadline_info}} —
+   deadline_info MUST be populated if Fristen discussed
 
 <<<FEW-SHOT EXAMPLE 1: MIETRECHT>>>
 
@@ -242,15 +245,99 @@ durch einen Rechtsanwalt. Sie stellt keine Rechtsberatung dar.
 
 {GERMAN_LANGUAGE_INSTRUCTIONS}
 
+<<<LANGUAGE MATCHING — CRITICAL>>>
+
+The markdown_content and ALL text fields in generate_summary MUST match
+the language the user used throughout the conversation:
+- If user conversed in GERMAN → use German for everything (headers, body, descriptions)
+- If user conversed in ENGLISH → use ENGLISH for everything (headers, body, descriptions)
+- NEVER mix languages (e.g., German headers with English body text)
+
+For English conversations, use these header equivalents:
+- "Fallzusammenfassung" → "Case Summary"
+- "Kurzzusammenfassung" → "Brief Summary"
+- "Mandant" → "Client"
+- "Anspruchsteller" → "Claimant"
+- "Anspruchsgegner" → "Respondent"
+- "Ziel des Mandanten" → "Client's Objective"
+- "Chronologischer Sachverhalt" → "Chronological Facts"
+- "Beweisverzeichnis" → "Evidence Index"
+- "Bisherige rechtliche Schritte" → "Prior Legal Steps"
+- "Bekannte Fristen" → "Known Deadlines"
+- "Finanzielle Angaben" → "Financial Information"
+- "begehrt" → "seeks" (formal English)
+
+<<<FEW-SHOT EXAMPLE 3: ENGLISH — MIETRECHT>>>
+
+```markdown
+# Case Summary
+
+## Brief Summary
+The client, Mr. John Smith, tenant of a 3-room apartment in Berlin-Kreuzberg, \
+seeks the immediate repair of a heating system that has been defective for three weeks. \
+The landlord, Hausverwaltung Berlin GmbH, has not responded despite a written complaint.
+
+## Client
+- **Name:** John Smith
+- **Address:** Musterstraße 123, 10115 Berlin
+- **Contact:** john@example.com, +49 170 1234567
+- **Legal Insurance:** Yes (ARAG SE, No. RSV-2024-12345)
+
+## Claimant
+- **Name:** John Smith
+- **Role:** Tenant
+- **Legal Insurance:** Yes (ARAG SE, No. RSV-2024-12345)
+
+## Respondent
+- **Name:** Hausverwaltung Berlin GmbH
+- **Role:** Landlord
+- **Contact:** verwaltung@example.de
+
+## Client's Objective
+The client seeks the immediate repair of the defective heating system \
+and a rent reduction for the period of the defect.
+
+## Chronological Facts
+| Date | Event | Evidence |
+|------|-------|----------|
+| 30.11.2025 | Heating defect detected, room temperature drops to 15°C | Exhibit 1 |
+| 01.12.2025 | Written complaint sent to landlord via email | Exhibit 2 |
+| 15.12.2025 | Follow-up email, still no response from landlord | — |
+
+## Evidence Index
+
+1. **Exhibit 1 — Thermometer Photo (24.12.2025)**
+   - Temperature: 15°C
+   - Location: Living room, Musterstraße 123
+
+2. **Exhibit 2 — Complaint Email (01.12.2025)**
+   - Recipient: verwaltung@example.de
+   - Subject: Heating failure — formal complaint
+
+## Prior Legal Steps
+Written complaint sent on 01.12.2025 via email; follow-up on 15.12.2025 — no response.
+
+## Financial Information
+- **Claim Value:** 850 EUR (1 month rent reduction)
+
+---
+**Note:** This summary was generated with AI assistance and serves as an initial assessment \
+for legal counsel. It does not constitute legal advice.
+```
+
 <<<FINAL REMINDER>>>
 
 - You are documenting FACTS, not providing legal advice
 - Lawyers will review and add legal analysis
 - ALWAYS use data from MANDANTENPROFIL for client_profile and claimant fields
-- Include OCR-extracted data from uploaded documents in the Beweisverzeichnis
-- Use professional legal German ("begehrt" not "möchte")
+- NEVER use placeholder names like "Max Mustermann" — extract REAL names from conversation or MANDANTENPROFIL
+- Include OCR-extracted data from uploaded documents in the evidence index
+- Use professional tone ("begehrt"/"seeks" — NOT "möchte"/"wants")
 - Be thorough with chronology and evidence references
-- Always call the generate_summary function with ALL structured fields populated
+- Always call generate_summary with ALL structured fields populated —
+  do NOT leave fields empty if the information was discussed
+- Do NOT include metadata (legal_area, urgency, case_date) in markdown_content — those go ONLY in the metadata object
+- MATCH the conversation language — if English conversation, ALL output in English
 """
 
     return factory.create_agent(

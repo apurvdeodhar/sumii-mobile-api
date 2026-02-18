@@ -340,7 +340,7 @@
         {% endif %}
       </div>
       <div class="header-text">
-        <div class="header-title">Vertraulich</div>
+        <div class="header-title">{{ t.confidential }}</div>
         <div class="header-subtitle">
           Forensische Anamnese | Bahrenfelder Kirchenweg 6h | 22763 Hamburg
         </div>
@@ -349,11 +349,11 @@
 
     <!-- Case Title -->
     <div class="case-title">
-      <h1>Forensische Anamnese in Sachen</h1>
+      <h1>{{ t.title }}</h1>
       <div class="case-subject">
-        <strong>{% if is_lawyer_view %}Sumii-Mandant {{ summary_id | default_if_empty("XXXXXX") }}{% else %}{{ case_data.claimant.name | default_if_empty("Mandant") }}{% endif %}</strong>
-        wegen
-        <strong>{{ case_data.factual_narrative.claimant_goal | truncate_words(3) | default_if_empty("Rechtlicher Anspruch") }}</strong>
+        <strong>{% if is_lawyer_view %}{{ t.client_label }} {{ summary_id | default_if_empty("XXXXXX") }}{% else %}{{ case_data.claimant.name | default_if_empty(t.not_specified) }}{% endif %}</strong>
+        {{ t.regarding }}
+        <strong>{{ case_data.factual_narrative.claimant_goal | truncate_words(3) | default_if_empty(t.legal_claim) }}</strong>
       </div>
     </div>
 
@@ -361,98 +361,96 @@
     <div class="case-metadata">
       <table>
         <tr>
-          <td class="label">Aktenzeichen:</td>
-          <td>{{ summary_id | default_if_empty("SUMII-ENTWURF") }}</td>
+          <td class="label">{{ t.reference }}</td>
+          <td>{{ summary_id | default_if_empty(t.draft) }}</td>
         </tr>
         <tr>
-          <td class="label">Erstellt am:</td>
+          <td class="label">{{ t.created }}</td>
           <td>{{ generation_date | format_german_date }}</td>
         </tr>
       </table>
     </div>
 
-    <!-- Anspruchsteller -->
+    <!-- Anspruchsteller / Claimant -->
     <div class="section">
-      <h2>Anspruchsteller</h2>
+      <h2>{{ t.claimant }}</h2>
       <table class="info-table">
         <tr>
-          <td class="label">Name:</td>
+          <td class="label">{{ t.name }}</td>
           <td class="value">
             {% if is_lawyer_view %}
-              Sumii-Mandant {{ summary_id | default_if_empty("XXXXXX") }}
+              {{ t.client_label }} {{ summary_id | default_if_empty("XXXXXX") }}
             {% else %}
-              {{ case_data.claimant.name | default_if_empty("Nicht angegeben") }}
+              {{ case_data.claimant.name | default_if_empty(t.not_specified) }}
             {% endif %}
           </td>
         </tr>
         {% if case_data.claimant.role %}
         <tr>
-          <td class="label">Rolle:</td>
+          <td class="label">{{ t.role }}</td>
           <td class="value">{{ case_data.claimant.role }}</td>
         </tr>
         {% endif %}
         <tr>
-          <td class="label">Rechtsschutzversicherung:</td>
+          <td class="label">{{ t.legal_insurance }}</td>
           <td class="value">
-            {{ case_data.claimant.legal_insurance | default_if_empty("Nicht
-            angegeben") }}
+            {{ case_data.claimant.legal_insurance | default_if_empty(t.not_specified) }}
           </td>
         </tr>
         {% if not is_lawyer_view %}
           {% if case_data.claimant.insurance_company and
           case_data.claimant.insurance_company != "k. A." %}
           <tr>
-            <td class="label">Versicherungsgesellschaft:</td>
+            <td class="label">{{ t.insurance_company }}</td>
             <td class="value">{{ case_data.claimant.insurance_company }}</td>
           </tr>
           {% endif %}
           {% if case_data.claimant.insurance_number and
           case_data.claimant.insurance_number != "k. A." %}
           <tr>
-            <td class="label">Versicherungsnummer:</td>
+            <td class="label">{{ t.insurance_number }}</td>
             <td class="value">{{ case_data.claimant.insurance_number }}</td>
           </tr>
           {% endif %}
         {% endif %}
         {% if case_data.claimant.date_of_birth and case_data.claimant.date_of_birth != "k. A." %}
         <tr>
-          <td class="label">Geburtsdatum:</td>
+          <td class="label">{{ t.dob }}</td>
           <td class="value">{{ case_data.claimant.date_of_birth }}</td>
         </tr>
         {% endif %}
         {% if case_data.claimant.occupation and case_data.claimant.occupation != "k. A." %}
         <tr>
-          <td class="label">Beruf:</td>
+          <td class="label">{{ t.occupation }}</td>
           <td class="value">{{ case_data.claimant.occupation }}</td>
         </tr>
         {% endif %}
       </table>
     </div>
 
-    <!-- Anspruchsgegner -->
+    <!-- Anspruchsgegner / Respondent -->
     <div class="section">
-      <h2>Anspruchsgegner</h2>
+      <h2>{{ t.respondent }}</h2>
       <table class="info-table">
         <tr>
-          <td class="label">Name:</td>
+          <td class="label">{{ t.name }}</td>
           <td class="value">
-            {{ case_data.respondent.name | default_if_empty("Nicht angegeben")
-            }}
+            {{ case_data.respondent.name | default_if_empty(t.not_specified) }}
           </td>
         </tr>
         {% if case_data.respondent.role %}
         <tr>
-          <td class="label">Rolle:</td>
+          <td class="label">{{ t.role }}</td>
           <td class="value">{{ case_data.respondent.role }}</td>
         </tr>
         {% endif %} {% if case_data.respondent.address %}
         <tr>
-          <td class="label">Anschrift:</td>
+          <td class="label">{{ t.address }}</td>
           <td class="value">{{ case_data.respondent.address }}</td>
         </tr>
         {% endif %} {% if case_data.respondent.contact %}
         <tr>
-          <td class="label">Kontakt:</td>
+          <td class="label">{{ t.contact }}</td>
           <td class="value">{{ case_data.respondent.contact }}</td>
         </tr>
         {% endif %}
@@ -463,7 +461,7 @@
     {% if case_data.financial_info and case_data.financial_info.claim_value_eur
     %}
     <div class="section">
-      <h2>Geschätzter Gegenstandswert</h2>
+      <h2>{{ t.claim_value }}</h2>
       <div class="claim-value">
         <div class="amount">{{ case_data.financial_info.claim_value_eur }}</div>
         {% if case_data.financial_info.claim_description %}
@@ -477,24 +475,24 @@
 
     <!-- Sachverhaltsdarstellung -->
     <div class="section">
-      <h2>Sachverhaltsdarstellung</h2>
+      <h2>{{ t.facts }}</h2>
 
       {% if case_data.factual_narrative.claimant_goal %}
-      <h3>Ziel des Mandanten</h3>
+      <h3>{{ t.client_goal }}</h3>
       <div class="content-box">
         <p>{{ case_data.factual_narrative.claimant_goal }}</p>
       </div>
       {% endif %} {% if case_data.factual_narrative.party_relationship %}
-      <h3>Verhältnis der Parteien</h3>
+      <h3>{{ t.party_relationship }}</h3>
       <div class="content-box">
         <p>{{ case_data.factual_narrative.party_relationship }}</p>
       </div>
       {% endif %} {% if case_data.factual_narrative.chronological_timeline %}
-      <h3>Chronologischer Sachverhalt</h3>
+      <h3>{{ t.chronological_facts }}</h3>
       {% for event in case_data.factual_narrative.chronological_timeline %}
       <div class="timeline-item">
         <div class="timeline-date">
-          {{ event.date | default_if_empty("Datum unbekannt") }}
+          {{ event.date | default_if_empty(t.date_unknown) }}
         </div>
         <div class="timeline-event">{{ event.event }}</div>
         {% if event.evidence_ref %}
@@ -504,12 +502,12 @@
       {% endfor %} {% endif %}
 
       {% if case_data.factual_narrative.prior_legal_steps %}
-      <h3>Bisherige rechtliche Schritte</h3>
+      <h3>{{ t.prior_steps }}</h3>
       <p>{{ case_data.factual_narrative.prior_legal_steps }}</p>
       {% endif %}
 
       {% if case_data.factual_narrative.witnesses %}
-      <h3>Zeugen</h3>
+      <h3>{{ t.witnesses }}</h3>
       <ul>
         {% for witness in case_data.factual_narrative.witnesses %}
         <li>{{ witness }}</li>
@@ -518,21 +516,21 @@
       {% endif %}
 
       {% if case_data.factual_narrative.jurisdiction and case_data.factual_narrative.jurisdiction != "k. A." %}
-      <p><strong>Zuständiges Gericht:</strong> {{ case_data.factual_narrative.jurisdiction }}</p>
+      <p><strong>{{ t.jurisdiction }}</strong> {{ case_data.factual_narrative.jurisdiction }}</p>
       {% endif %}
     </div>
 
     <!-- Beweisverzeichnis -->
     {% if case_data.evidence and case_data.evidence.evidence_items %}
     <div class="section">
-      <h2>Beweisverzeichnis</h2>
+      <h2>{{ t.evidence }}</h2>
       <ol class="evidence-list">
         {% for item in case_data.evidence.evidence_items %}
         <li>
           {% if item is mapping %} {# Structured evidence with OCR data #}
           <strong
-            >{{ item.anlage_number | default_if_empty("Anlage " ~ loop.index) }}
-            - {{ item.document_type | default_if_empty("Dokument") }}</strong
+            >{{ item.anlage_number | default_if_empty(t.exhibit ~ " " ~ loop.index) }}
+            - {{ item.document_type | default_if_empty(t.document) }}</strong
           >
           {% if item.document_date %}
           <br /><span style="font-size: 9pt; color: var(--sumii-muted)"
@@ -545,7 +543,7 @@
             {% endfor %}
           </ul>
           {% endif %} {% else %} {# Legacy string format #}
-          <strong>Anlage {{ loop.index }}:</strong> {{ item }} {% endif %}
+          <strong>{{ t.exhibit }} {{ loop.index }}:</strong> {{ item }} {% endif %}
         </li>
         {% endfor %}
       </ol>
@@ -555,7 +553,7 @@
     <!-- Bekannte Fristen -->
     {% if case_data.metadata.deadline_info %}
     <div class="section">
-      <h2>Bekannte Fristen</h2>
+      <h2>{{ t.deadlines }}</h2>
       <p>{{ case_data.metadata.deadline_info }}</p>
     </div>
     {% endif %}
@@ -563,17 +561,17 @@
     <!-- Finanzielle Angaben -->
     {% if case_data.financial_info and (case_data.financial_info.claim_value_eur or case_data.financial_info.claim_description) %}
     <div class="section">
-      <h2>Finanzielle Angaben</h2>
+      <h2>{{ t.financial }}</h2>
       <table class="info-table">
         {% if case_data.financial_info.claim_value_eur %}
         <tr>
-          <td class="label">Streitwert:</td>
+          <td class="label">{{ t.claim_amount }}</td>
           <td class="value">{{ case_data.financial_info.claim_value_eur }} EUR</td>
         </tr>
         {% endif %}
         {% if case_data.financial_info.claim_description %}
         <tr>
-          <td class="label">Beschreibung:</td>
+          <td class="label">{{ t.claim_desc }}</td>
           <td class="value">{{ case_data.financial_info.claim_description }}</td>
         </tr>
         {% endif %}
@@ -583,54 +581,46 @@
 
     <!-- Nächste Schritte -->
     <div class="section">
-      <h2>Nächste Schritte</h2>
+      <h2>{{ t.next_steps }}</h2>
       <div class="next-steps">
         <ol>
-          <li>Kontaktieren Sie den Mandanten über sumii für weitere Details</li>
-          <li>Prüfen Sie die bereitgestellten Unterlagen</li>
-          <li>Vereinbaren Sie ggf. ein Erstgespräch zur Mandatierung</li>
+          <li>{{ t.next_step_1 }}</li>
+          <li>{{ t.next_step_2 }}</li>
+          <li>{{ t.next_step_3 }}</li>
         </ol>
       </div>
     </div>
 
     <!-- Legal Disclaimer -->
     <div class="legal-disclaimer">
-      <h3>Rechtliche Hinweise</h3>
+      <h3>{{ t.legal_notice }}</h3>
 
       <p>
-        <strong>KI-generierte Analyse:</strong> Diese forensische Anamnese wurde
-        mit KI-Unterstützung erstellt und dient ausschließlich der
-        strukturierten Aufbereitung von Mandanteninformationen. Sie stellt keine
-        rechtliche Beratung dar.
+        <strong>{{ t.ai_notice }}</strong> {{ t.ai_notice_text }}
       </p>
 
       <p>
-        <strong>Prüfungspflicht:</strong> Alle Angaben basieren auf den
-        Informationen des Mandanten und wurden automatisiert strukturiert. Eine
-        eigenständige anwaltliche Prüfung ist zwingend erforderlich.
+        <strong>{{ t.review_notice }}</strong> {{ t.review_notice_text }}
       </p>
 
       <p>
-        <strong>Kein Mandatsverhältnis:</strong> Durch diese Analyse entsteht
-        kein Mandatsverhältnis. Ein Mandat kommt erst durch gesonderte
-        Vereinbarung zustande.
+        <strong>{{ t.no_mandate }}</strong> {{ t.no_mandate_text }}
       </p>
 
       <p>
-        <strong>Datenschutz:</strong> Die Verarbeitung erfolgt unter Beachtung
-        der DSGVO. Alle Informationen werden vertraulich behandelt.
+        <strong>{{ t.privacy }}</strong> {{ t.privacy_text }}
       </p>
     </div>
 
     <!-- Anlagen (Document Appendix Index) -->
     {% if attached_documents %}
     <div class="section" style="page-break-before: always;">
-      <h2>Anlagen</h2>
-      <p>Die folgenden Dokumente wurden vom Mandanten hochgeladen und sind diesem Bericht als Anlagen beigefügt:</p>
+      <h2>{{ t.attachments }}</h2>
+      <p>{{ t.attachments_desc }}</p>
       <table class="info-table">
         {% for doc in attached_documents %}
         <tr>
-          <td class="label">Anlage {{ loop.index }}:</td>
+          <td class="label">{{ t.attachment }} {{ loop.index }}:</td>
           <td class="value">{{ doc.filename }}</td>
         </tr>
         {% endfor %}

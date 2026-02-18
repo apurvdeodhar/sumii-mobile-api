@@ -25,6 +25,149 @@ logger = logging.getLogger(__name__)
 TEMPLATES_DIR = Path(__file__).parent.parent / "templates"
 
 
+def _get_pdf_translations(language: str) -> dict[str, str]:
+    """Get translation strings for PDF template headers.
+
+    Returns a dict of label keys → translated strings for the given language.
+    Default is German (de). English (en) is the only other supported language.
+    """
+    if language == "en":
+        return {
+            "confidential": "Confidential",
+            "title": "Forensic Intake Report regarding",
+            "regarding": "regarding",
+            "reference": "Reference:",
+            "created": "Created:",
+            "claimant": "Claimant",
+            "respondent": "Respondent",
+            "name": "Name:",
+            "role": "Role:",
+            "address": "Address:",
+            "contact": "Contact:",
+            "legal_insurance": "Legal Insurance:",
+            "insurance_company": "Insurance Company:",
+            "insurance_number": "Policy Number:",
+            "dob": "Date of Birth:",
+            "occupation": "Occupation:",
+            "claim_value": "Estimated Claim Value",
+            "claim_amount": "Claim Value:",
+            "claim_desc": "Description:",
+            "facts": "Statement of Facts",
+            "client_goal": "Client's Objective",
+            "party_relationship": "Relationship Between Parties",
+            "chronological_facts": "Chronological Facts",
+            "date_unknown": "Date unknown",
+            "prior_steps": "Prior Legal Steps",
+            "witnesses": "Witnesses",
+            "jurisdiction": "Relevant Court:",
+            "evidence": "Evidence Index",
+            "exhibit": "Exhibit",
+            "document": "Document",
+            "date_label": "Date:",
+            "deadlines": "Known Deadlines",
+            "financial": "Financial Information",
+            "next_steps": "Next Steps",
+            "next_step_1": "Contact the client through Sumii for further details",
+            "next_step_2": "Review the provided documents",
+            "next_step_3": "Schedule an initial consultation if needed",
+            "legal_notice": "Legal Notice",
+            "ai_notice": "AI-Generated Analysis:",
+            "ai_notice_text": (
+                "This forensic intake report was created with AI assistance and serves solely "
+                "for the structured preparation of client information. It does not constitute legal advice."
+            ),
+            "review_notice": "Review Required:",
+            "review_notice_text": (
+                "All information is based on client statements and was automatically structured. "
+                "Independent legal review is mandatory."
+            ),
+            "no_mandate": "No Attorney-Client Relationship:",
+            "no_mandate_text": (
+                "This analysis does not establish an attorney-client relationship. "
+                "A mandate requires a separate agreement."
+            ),
+            "privacy": "Data Protection:",
+            "privacy_text": "Processing complies with GDPR. All information is treated confidentially.",
+            "attachments": "Attachments",
+            "attachments_desc": "The following documents were uploaded by the client and are attached to this report:",
+            "attachment": "Attachment",
+            "not_specified": "Not specified",
+            "draft": "SUMII-DRAFT",
+            "client_label": "Sumii Client",
+            "legal_claim": "Legal Claim",
+        }
+    # Default: German
+    return {
+        "confidential": "Vertraulich",
+        "title": "Forensische Anamnese in Sachen",
+        "regarding": "wegen",
+        "reference": "Aktenzeichen:",
+        "created": "Erstellt am:",
+        "claimant": "Anspruchsteller",
+        "respondent": "Anspruchsgegner",
+        "name": "Name:",
+        "role": "Rolle:",
+        "address": "Anschrift:",
+        "contact": "Kontakt:",
+        "legal_insurance": "Rechtsschutzversicherung:",
+        "insurance_company": "Versicherungsgesellschaft:",
+        "insurance_number": "Versicherungsnummer:",
+        "dob": "Geburtsdatum:",
+        "occupation": "Beruf:",
+        "claim_value": "Geschätzter Gegenstandswert",
+        "claim_amount": "Streitwert:",
+        "claim_desc": "Beschreibung:",
+        "facts": "Sachverhaltsdarstellung",
+        "client_goal": "Ziel des Mandanten",
+        "party_relationship": "Verhältnis der Parteien",
+        "chronological_facts": "Chronologischer Sachverhalt",
+        "date_unknown": "Datum unbekannt",
+        "prior_steps": "Bisherige rechtliche Schritte",
+        "witnesses": "Zeugen",
+        "jurisdiction": "Zuständiges Gericht:",
+        "evidence": "Beweisverzeichnis",
+        "exhibit": "Anlage",
+        "document": "Dokument",
+        "date_label": "Datum:",
+        "deadlines": "Bekannte Fristen",
+        "financial": "Finanzielle Angaben",
+        "next_steps": "Nächste Schritte",
+        "next_step_1": "Kontaktieren Sie den Mandanten über sumii für weitere Details",
+        "next_step_2": "Prüfen Sie die bereitgestellten Unterlagen",
+        "next_step_3": "Vereinbaren Sie ggf. ein Erstgespräch zur Mandatierung",
+        "legal_notice": "Rechtliche Hinweise",
+        "ai_notice": "KI-generierte Analyse:",
+        "ai_notice_text": (
+            "Diese forensische Anamnese wurde mit KI-Unterstützung erstellt und dient "
+            "ausschließlich der strukturierten Aufbereitung von Mandanteninformationen. "
+            "Sie stellt keine rechtliche Beratung dar."
+        ),
+        "review_notice": "Prüfungspflicht:",
+        "review_notice_text": (
+            "Alle Angaben basieren auf den Informationen des Mandanten und wurden automatisiert "
+            "strukturiert. Eine eigenständige anwaltliche Prüfung ist zwingend erforderlich."
+        ),
+        "no_mandate": "Kein Mandatsverhältnis:",
+        "no_mandate_text": (
+            "Durch diese Analyse entsteht kein Mandatsverhältnis. "
+            "Ein Mandat kommt erst durch gesonderte Vereinbarung zustande."
+        ),
+        "privacy": "Datenschutz:",
+        "privacy_text": (
+            "Die Verarbeitung erfolgt unter Beachtung der DSGVO. " "Alle Informationen werden vertraulich behandelt."
+        ),
+        "attachments": "Anlagen",
+        "attachments_desc": (
+            "Die folgenden Dokumente wurden vom Mandanten hochgeladen " "und sind diesem Bericht als Anlagen beigefügt:"
+        ),
+        "attachment": "Anlage",
+        "not_specified": "Nicht angegeben",
+        "draft": "SUMII-ENTWURF",
+        "client_label": "Sumii-Mandant",
+        "legal_claim": "Rechtlicher Anspruch",
+    }
+
+
 class PDFService:
     """Service for converting markdown/templates to PDF"""
 
@@ -199,6 +342,7 @@ class PDFService:
         template_name: str = "legal_case_report.html",
         is_lawyer_view: bool = False,
         attached_documents: list[dict] | None = None,
+        language: str = "de",
     ) -> bytes:
         """Render Jinja2 template with case data and convert to PDF
 
@@ -231,6 +375,9 @@ class PDFService:
             logo_path = assets_dir / "sumii_logo.png"
             logo_url = f"file://{logo_path}" if logo_path.exists() else None
 
+            # Build translation dict for bilingual PDF support
+            t = _get_pdf_translations(language)
+
             # Prepare template context
             context = {
                 "case_data": case_data,
@@ -238,7 +385,8 @@ class PDFService:
                 "session_id": summary_id,
                 "generation_date": datetime.now(),
                 "template_version": "2.0",
-                "language": "de",
+                "language": language,
+                "t": t,
                 "logo_path": logo_url,
                 "is_lawyer_view": is_lawyer_view,
                 "attached_documents": attached_documents or [],
