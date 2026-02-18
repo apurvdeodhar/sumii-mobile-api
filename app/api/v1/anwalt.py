@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.models import Conversation, LawyerConnection, Summary, User
+from app.models.document import Document, UploadStatus
 from app.models.lawyer_connection import ConnectionStatus
 from app.schemas.lawyer_connection import (
     LawyerConnectionCreate,
@@ -37,7 +38,7 @@ async def search_lawyers(
     legal_area: str | None = Query(None, description="Legal specialization filter (e.g., Mietrecht)"),
     lat: float | None = Query(None, description="Latitude for location-based search"),
     lng: float | None = Query(None, description="Longitude for location-based search"),
-    radius: float = Query(10.0, description="Search radius in km (default: 10)"),
+    radius: float = Query(50.0, description="Search radius in km (default: 50)"),
 ) -> list[dict]:
     """Search for lawyers in sumii-anwalt directory
 
@@ -191,25 +192,41 @@ async def connect_to_lawyer(
     # Hand off case to sumii-anwalt backend if summary exists
     if summary:
         try:
-            # from app.services.pdf_service import PDFService  # TODO: Use for anonymized PDF
             from app.services.storage_service import StorageService
 
             storage_service = StorageService()
-            # pdf_service = PDFService()  # TODO: Generate anonymized PDF
 
-            # Generate anonymized PDF for lawyer view
-            # Parse the case data from the summary's markdown or re-generate structure
-            # For now, we use a simplified approach: generate PDF with is_lawyer_view=True
-            # The case_data should be stored with the summary, but since it's not,
-            # we'll use the existing PDF URL for now and add anonymization later
-            # TODO: Store case_data with summary to enable full anonymization
-
-            # For now, use the existing PDF (anonymization happens in template)
-            # When full implementation is ready, generate new PDF with is_lawyer_view=True
+            # Generate presigned URL for summary PDF
             pdf_url = storage_service.generate_presigned_url(
                 s3_key=str(summary.pdf_s3_key),
                 expiration_days=7,
             )
+
+            # Query completed documents for this conversation
+            doc_result = await db.execute(
+                select(Document)
+                .where(Document.conversation_id == connection_data.conversation_id)
+                .where(Document.upload_status == UploadStatus.COMPLETED)
+                .order_by(Document.created_at)
+            )
+            documents = doc_result.scalars().all()
+
+            # Generate fresh presigned URLs for each document
+            document_urls: list[dict[str, str]] | None = None
+            if documents:
+                document_urls = []
+                for doc in documents:
+                    doc_url = storage_service.generate_presigned_url(
+                        s3_key=str(doc.s3_key),
+                        expiration_days=7,
+                    )
+                    document_urls.append(
+                        {
+                            "filename": doc.filename,
+                            "url": doc_url,
+                            "file_type": doc.file_type,
+                        }
+                    )
 
             # Get user location if available
             user_location = None
@@ -228,6 +245,8 @@ async def connect_to_lawyer(
                 legal_area=conversation.legal_area.value if conversation.legal_area else "Other",
                 urgency=conversation.urgency.value if conversation.urgency else "weeks",
                 user_location=user_location,
+                document_urls=document_urls,
+                conversation_id=str(connection_data.conversation_id),
             )
 
             # Update connection with case_id from sumii-anwalt

@@ -27,7 +27,7 @@ class AnwaltService:
         legal_area: str | None = None,
         latitude: float | None = None,
         longitude: float | None = None,
-        radius_km: float = 10.0,
+        radius_km: float = 50.0,
     ) -> list[dict[str, Any]]:
         """Search for lawyers in sumii-anwalt directory
 
@@ -116,6 +116,8 @@ class AnwaltService:
         legal_area: str,
         urgency: str,
         user_location: dict[str, Any] | None = None,
+        document_urls: list[dict[str, str]] | None = None,
+        conversation_id: str | None = None,
     ) -> dict[str, Any]:
         """Hand off case to sumii-anwalt backend
 
@@ -130,6 +132,7 @@ class AnwaltService:
             legal_area: Legal area (e.g., "Mietrecht", "Arbeitsrecht")
             urgency: Urgency level (e.g., "immediate", "weeks", "months")
             user_location: Optional user location dict with keys: city, lat, lng
+            document_urls: Optional list of document dicts with keys: filename, url, file_type
 
         Returns:
             Dictionary with case_id from sumii-anwalt system
@@ -150,6 +153,12 @@ class AnwaltService:
 
         if user_location:
             payload["user_location"] = user_location
+
+        if document_urls:
+            payload["document_urls"] = document_urls
+
+        if conversation_id:
+            payload["conversation_id"] = conversation_id
 
         # Make request to sumii-anwalt backend
         url = f"{self.base_url}/api/cases/handoff"
