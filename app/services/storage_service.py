@@ -130,6 +130,21 @@ class StorageService:
         except ClientError as e:
             raise Exception(f"Failed to generate pre-signed URL: {e}")
 
+    def download_document(self, s3_key: str) -> bytes:
+        """Download document from S3
+
+        Args:
+            s3_key: S3 object key
+
+        Returns:
+            File content as bytes
+        """
+        try:
+            response = self.s3_client.get_object(Bucket=self.bucket_name, Key=s3_key)
+            return response["Body"].read()
+        except ClientError as e:
+            raise Exception(f"Failed to download S3 object: {e}")
+
     def delete_object(self, s3_key: str) -> None:
         """Delete object from S3
 

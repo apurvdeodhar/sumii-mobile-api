@@ -10,10 +10,12 @@ It supports two methods:
 
 import logging
 from datetime import datetime
+from io import BytesIO
 from pathlib import Path
 
 import markdown as md
 from jinja2 import Environment, FileSystemLoader, select_autoescape
+from pypdf import PdfReader, PdfWriter
 from weasyprint import CSS, HTML
 from weasyprint.text.fonts import FontConfiguration
 
@@ -196,6 +198,7 @@ class PDFService:
         summary_id: str | None = None,
         template_name: str = "legal_case_report.html",
         is_lawyer_view: bool = False,
+        attached_documents: list[dict] | None = None,
     ) -> bytes:
         """Render Jinja2 template with case data and convert to PDF
 
@@ -211,6 +214,7 @@ class PDFService:
             summary_id: Summary UUID for reference number
             template_name: Name of template file (default: legal_case_report.html)
             is_lawyer_view: If True, anonymizes user personal data (name, contact)
+            attached_documents: Optional list of dicts with 'filename' key for Anlage cover page
 
         Returns:
             bytes: PDF file content
@@ -237,6 +241,7 @@ class PDFService:
                 "language": "de",
                 "logo_path": logo_url,
                 "is_lawyer_view": is_lawyer_view,
+                "attached_documents": attached_documents or [],
             }
 
             # Render template to HTML
@@ -253,6 +258,81 @@ class PDFService:
         except Exception as e:
             logger.error(f"Failed to generate PDF from template: {e}", exc_info=True)
             raise Exception(f"PDF generation from template failed: {str(e)}") from e
+
+    def merge_with_documents(
+        self,
+        summary_pdf: bytes,
+        documents: list[tuple[str, str, bytes]],
+    ) -> bytes:
+        """Merge summary PDF with document attachments as appendix pages.
+
+        Args:
+            summary_pdf: The WeasyPrint-generated summary PDF bytes
+            documents: List of (filename, file_type, content_bytes) tuples
+
+        Returns:
+            Merged PDF bytes with documents appended after the summary
+        """
+        writer = PdfWriter()
+
+        # Add all summary pages
+        summary_reader = PdfReader(BytesIO(summary_pdf))
+        for page in summary_reader.pages:
+            writer.add_page(page)
+
+        # For each document, convert if needed and append
+        for filename, file_type, content in documents:
+            try:
+                if file_type == "application/pdf":
+                    doc_reader = PdfReader(BytesIO(content))
+                    for page in doc_reader.pages:
+                        writer.add_page(page)
+                elif file_type.startswith("image/"):
+                    img_pdf = self._image_to_pdf_page(content, file_type)
+                    img_reader = PdfReader(BytesIO(img_pdf))
+                    for page in img_reader.pages:
+                        writer.add_page(page)
+                else:
+                    logger.warning(f"Skipping unsupported file type for merge: {file_type} ({filename})")
+            except Exception as e:
+                logger.warning(f"Failed to merge document '{filename}': {e}")
+
+        # Write merged PDF
+        output = BytesIO()
+        writer.write(output)
+        return output.getvalue()
+
+    @staticmethod
+    def _image_to_pdf_page(image_bytes: bytes, file_type: str) -> bytes:
+        """Convert an image to a single-page PDF.
+
+        Handles JPEG, PNG, HEIC/HEIF formats. HEIC requires pillow-heif.
+
+        Args:
+            image_bytes: Raw image bytes
+            file_type: MIME type (image/jpeg, image/png, image/heic, image/heif)
+
+        Returns:
+            PDF bytes containing the image as a single page
+        """
+        from PIL import Image
+
+        # HEIC/HEIF support requires pillow-heif plugin (auto-registered if installed)
+        if file_type in ("image/heic", "image/heif"):
+            try:
+                import pillow_heif
+
+                pillow_heif.register_heif_opener()
+            except ImportError:
+                logger.warning("pillow-heif not installed — HEIC images will fail to convert")
+
+        img = Image.open(BytesIO(image_bytes))
+        if img.mode in ("RGBA", "P"):
+            img = img.convert("RGB")
+
+        output = BytesIO()
+        img.save(output, format="PDF")
+        return output.getvalue()
 
     def markdown_to_pdf(self, markdown_content: str, reference_number: str | None = None) -> bytes:
         """Convert markdown to PDF bytes (legacy method)

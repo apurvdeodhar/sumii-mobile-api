@@ -16,6 +16,7 @@ class ThinkingStep(BaseModel):
     title: str  # Human-readable description
     status: str  # pending, active, complete
     timestamp: datetime
+    preview_text: str | None = None  # Last ~120 chars of agent output for UI preview
 
 
 class ThinkingStepsResponse(BaseModel):
