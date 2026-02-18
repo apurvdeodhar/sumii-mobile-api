@@ -17,11 +17,13 @@ COMPLETENESS_CHECK_SCHEMA = {
         "description": (
             "MANDATORY: Call this function BEFORE presenting the wrap-up summary. "
             "Review the conversation and MANDANTENPROFIL, then report which fields "
-            "have been collected. This identifies what to ask the user about."
+            "have been collected. This identifies what to ask the user about. "
+            "ALL fields below must be audited — report empty string for any not found."
         ),
         "parameters": {
             "type": "object",
             "properties": {
+                # --- Core 5W fields ---
                 "client_name": {
                     "type": "string",
                     "description": (
@@ -31,10 +33,6 @@ COMPLETENESS_CHECK_SCHEMA = {
                 "client_address": {
                     "type": "string",
                     "description": "Client's address. Empty string if not found.",
-                },
-                "legal_insurance": {
-                    "type": "string",
-                    "description": "Insurance status (ja/nein). Empty string if not discussed.",
                 },
                 "opposing_party": {
                     "type": "string",
@@ -48,20 +46,120 @@ COMPLETENESS_CHECK_SCHEMA = {
                     "type": "string",
                     "description": "What the user wants to achieve. Empty string if not found.",
                 },
+                # --- German lawyer profile fields (mandatory) ---
+                "date_of_birth": {
+                    "type": "string",
+                    "description": (
+                        "Client's date of birth (DD.MM.YYYY). "
+                        "Check MANDANTENPROFIL first. Empty string if not found."
+                    ),
+                },
+                "occupation": {
+                    "type": "string",
+                    "description": (
+                        "Client's occupation/profession (Beruf). "
+                        "Important for Arbeitsrecht and income-related cases. Empty string if not found."
+                    ),
+                },
+                "legal_insurance": {
+                    "type": "string",
+                    "description": (
+                        "Has Rechtsschutzversicherung? (ja/nein). "
+                        "Check MANDANTENPROFIL first. Empty string if not discussed."
+                    ),
+                },
+                "insurance_company": {
+                    "type": "string",
+                    "description": (
+                        "Insurance company name (e.g., ARAG, DEVK, Allianz). "
+                        "Check MANDANTENPROFIL first. Empty string if not found."
+                    ),
+                },
+                "insurance_number": {
+                    "type": "string",
+                    "description": (
+                        "Insurance policy number (Versicherungsnummer). "
+                        "Check MANDANTENPROFIL first. Empty string if not found."
+                    ),
+                },
+                # --- Case detail fields (mandatory) ---
+                "prior_legal_steps": {
+                    "type": "string",
+                    "description": (
+                        "Prior legal steps already taken (e.g., Mängelanzeige sent, lawyer consulted, "
+                        "Widerspruch filed, police report). Empty string if not discussed."
+                    ),
+                },
+                "witnesses": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": (
+                        "Names or descriptions of witnesses who can confirm the facts. "
+                        "Empty array if none mentioned."
+                    ),
+                },
+                "jurisdiction": {
+                    "type": "string",
+                    "description": (
+                        "Relevant court jurisdiction based on location "
+                        "(e.g., 'Amtsgericht Berlin-Kreuzberg', 'Arbeitsgericht München'). "
+                        "Empty string if not determinable."
+                    ),
+                },
+                "deadline_info": {
+                    "type": "string",
+                    "description": (
+                        "Known deadlines/Fristen (e.g., Kündigungsfrist, Widerspruchsfrist, "
+                        "3-Wochen-Frist Kündigungsschutzklage). "
+                        "Empty string if no deadlines known."
+                    ),
+                },
+                # --- Financial info ---
+                "financial_claim_value": {
+                    "type": "string",
+                    "description": (
+                        "Estimated claim value in EUR (Streitwert). "
+                        "E.g., rent reduction amount, salary claim, damages. Empty string if not discussed."
+                    ),
+                },
+                "financial_claim_description": {
+                    "type": "string",
+                    "description": (
+                        "What the financial claim represents. "
+                        "E.g., '3 Monatsmieten Mietminderung', 'Abfindung'. Empty string if not discussed."
+                    ),
+                },
+                # --- Documents ---
                 "documents_uploaded": {
                     "type": "boolean",
                     "description": "Whether user has uploaded any documents.",
                 },
-                "prior_steps_taken": {
-                    "type": "string",
-                    "description": "Any legal steps already taken. Empty string if not discussed.",
-                },
+                # --- Missing fields reports ---
                 "missing_critical_fields": {
                     "type": "array",
                     "items": {"type": "string"},
                     "description": (
-                        "List of critical fields still missing. Critical fields: "
-                        "client_name, opposing_party, incident_date, desired_outcome."
+                        "List of critical fields still missing. Critical fields include: "
+                        "client_name, opposing_party, incident_date, desired_outcome, "
+                        "date_of_birth, occupation, legal_insurance."
+                    ),
+                },
+                "missing_case_fields": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": (
+                        "List of case detail fields still missing: "
+                        "prior_legal_steps, witnesses, jurisdiction, deadline_info, "
+                        "financial_claim_value. Report ALL that are empty."
+                    ),
+                },
+                "missing_profile_fields": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": (
+                        "List of profile fields still missing: "
+                        "insurance_company, insurance_number, client_address. "
+                        "Report ALL that are empty."
                     ),
                 },
             },
@@ -70,7 +168,18 @@ COMPLETENESS_CHECK_SCHEMA = {
                 "opposing_party",
                 "incident_date",
                 "desired_outcome",
+                "date_of_birth",
+                "occupation",
+                "legal_insurance",
+                "prior_legal_steps",
+                "witnesses",
+                "jurisdiction",
+                "deadline_info",
+                "financial_claim_value",
+                "documents_uploaded",
                 "missing_critical_fields",
+                "missing_case_fields",
+                "missing_profile_fields",
             ],
         },
     },
