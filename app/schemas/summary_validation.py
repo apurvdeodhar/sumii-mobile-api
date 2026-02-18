@@ -213,6 +213,47 @@ class SummaryData(BaseModel):
 # ---------------------------------------------------------------------------
 
 
+_PLACEHOLDER_NAMES = {
+    "max mustermann",
+    "mustermann",
+    "erika mustermann",
+    "john doe",
+    "jane doe",
+    "anna schmidt",
+    "john smith",
+}
+
+_METADATA_SECTION_PATTERNS = [
+    "## Metadata",
+    "## Metadaten",
+    "**Rechtsgebiet:**",
+    "**Legal Area:**",
+    "**Dringlichkeit:**",
+    "**Urgency:**",
+]
+
+
+def _is_placeholder_name(name: str) -> bool:
+    """Check if a name is a common placeholder from few-shot examples."""
+    return name.strip().lower() in _PLACEHOLDER_NAMES
+
+
+def _strip_metadata_from_markdown(markdown: str) -> str:
+    """Remove metadata sections from markdown (metadata belongs in structured fields only)."""
+    lines = markdown.split("\n")
+    result: list[str] = []
+    skip = False
+    for line in lines:
+        if any(pattern in line for pattern in _METADATA_SECTION_PATTERNS):
+            skip = True
+            continue
+        if skip and line.startswith("## "):
+            skip = False
+        if not skip:
+            result.append(line)
+    return "\n".join(result).rstrip()
+
+
 def validate_and_enrich_summary(raw_args: dict, user: User | None = None) -> SummaryData:
     """Validate summary function call output and enrich with user profile data.
 
@@ -220,6 +261,7 @@ def validate_and_enrich_summary(raw_args: dict, user: User | None = None) -> Sum
     1. JSON Schema required arrays (enforced by Mistral during generation)
     2. Pydantic validation (catches any remaining gaps, logs warnings)
     3. Auto-fill from user profile DB data (fills what the LLM missed)
+    4. Post-processing: strip metadata from markdown, replace placeholder names
 
     Args:
         raw_args: Raw JSON dict from generate_summary function call arguments
@@ -237,7 +279,7 @@ def validate_and_enrich_summary(raw_args: dict, user: User | None = None) -> Sum
     # Auto-fill from user profile if available
     if user:
         # Client profile
-        if not summary.client_profile.name and user.full_name:
+        if (not summary.client_profile.name or _is_placeholder_name(summary.client_profile.name)) and user.full_name:
             summary.client_profile.name = user.full_name
             auto_filled.append("client_profile.name")
         if not summary.client_profile.contact and user.email:
@@ -249,8 +291,8 @@ def validate_and_enrich_summary(raw_args: dict, user: User | None = None) -> Sum
                 summary.client_profile.address = addr
                 auto_filled.append("client_profile.address")
 
-        # Claimant (if LLM didn't populate name, use user profile)
-        if not summary.claimant.name and user.full_name:
+        # Claimant (replace placeholder names or empty with user profile)
+        if (not summary.claimant.name or _is_placeholder_name(summary.claimant.name)) and user.full_name:
             summary.claimant.name = user.full_name
             auto_filled.append("claimant.name")
         # Insurance data
@@ -265,6 +307,10 @@ def validate_and_enrich_summary(raw_args: dict, user: User | None = None) -> Sum
                 summary.claimant.insurance_number = user.insurance_number
                 auto_filled.append("claimant.insurance_number")
 
+    # Strip metadata sections from markdown (metadata goes in structured fields only)
+    if summary.markdown_content:
+        summary.markdown_content = _strip_metadata_from_markdown(summary.markdown_content)
+
     # Log warnings for critical missing fields
     if not summary.markdown_content:
         logger.warning("[SUMMARY_VALIDATION] markdown_content is empty")
@@ -274,6 +320,16 @@ def validate_and_enrich_summary(raw_args: dict, user: User | None = None) -> Sum
         logger.warning("[SUMMARY_VALIDATION] factual_narrative.claimant_goal is empty")
     if not summary.factual_narrative.chronological_timeline:
         logger.warning("[SUMMARY_VALIDATION] chronological_timeline is empty")
+    if not summary.factual_narrative.prior_legal_steps:
+        logger.warning("[SUMMARY_VALIDATION] factual_narrative.prior_legal_steps is empty")
+    if not summary.factual_narrative.witnesses:
+        logger.warning("[SUMMARY_VALIDATION] factual_narrative.witnesses is empty")
+    if not summary.factual_narrative.jurisdiction:
+        logger.warning("[SUMMARY_VALIDATION] factual_narrative.jurisdiction is empty")
+    if not summary.metadata.deadline_info:
+        logger.warning("[SUMMARY_VALIDATION] metadata.deadline_info is empty")
+    if not summary.financial_info.claim_value_eur:
+        logger.warning("[SUMMARY_VALIDATION] financial_info.claim_value_eur is empty")
 
     if auto_filled:
         logger.info(f"[SUMMARY_VALIDATION] Auto-filled {len(auto_filled)} fields from user profile: {auto_filled}")
