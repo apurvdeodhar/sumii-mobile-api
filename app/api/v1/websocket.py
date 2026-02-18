@@ -2079,17 +2079,19 @@ async def websocket_chat(
     except WebSocketDisconnect:
         # Client disconnected - this is normal, do nothing
         pass
+    except RuntimeError as e:
+        # "Unexpected ASGI message 'websocket.send', after sending 'websocket.close'"
+        # Happens when backend tries to send to a client that already disconnected
+        # (e.g., mobile app's token expired and it auto-logged out mid-stream).
+        # This is normal — treat it like WebSocketDisconnect.
+        logger.info(f"[WS] Client disconnected mid-stream: {e}")
     except Exception as e:
-        # Log the error for debugging
-        import traceback
+        logger.error(f"[WS] Unexpected error: {type(e).__name__}: {e}", exc_info=True)
 
-        print(f"[WebSocket ERROR] {type(e).__name__}: {e}")
-        traceback.print_exc()
-
-        # Unexpected error - try to send error to client if connection is still open
+        # Try to send error to client if connection is still open
         try:
             await websocket.send_json({"type": "error", "error": str(e), "code": "internal_error"})
             await websocket.close(code=status.WS_1011_INTERNAL_ERROR)
-        except RuntimeError:
+        except (RuntimeError, WebSocketDisconnect):
             # Connection already closed, nothing to do
             pass
