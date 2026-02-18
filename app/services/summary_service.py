@@ -7,7 +7,12 @@ the markdown content from the agent's function call response.
 import json
 import logging
 
+from sqlalchemy import select
+
 from app.models import Conversation, Message, MessageRole
+from app.models.document import Document, OCRStatus
+from app.models.user import User
+from app.schemas.summary_validation import build_user_profile_context_lines, validate_and_enrich_summary
 from app.services.agents import MistralAgentsService
 from app.services.mistral_client import get_mistral_client
 
@@ -62,8 +67,23 @@ class SummaryService:
                     "Conversation has no messages. Please chat with the legal assistant " "before generating a summary."
                 )
 
-            # Build conversation context from messages
-            conversation_context = self._build_conversation_context(conversation)
+            # Fetch user profile for context enrichment
+            user_result = await db_session.execute(select(User).where(User.id == conversation.user_id))
+            user = user_result.unique().scalar_one_or_none()
+
+            # Fetch documents with completed OCR for context enrichment
+            docs_result = await db_session.execute(
+                select(Document)
+                .where(
+                    Document.conversation_id == conversation.id,
+                    Document.ocr_status == OCRStatus.COMPLETED,
+                )
+                .order_by(Document.created_at)
+            )
+            documents = list(docs_result.scalars().all())
+
+            # Build conversation context from messages + user profile + documents
+            conversation_context = self._build_conversation_context(conversation, user=user, documents=documents)
             logger.debug(f"Built conversation context: {len(conversation_context)} chars")
 
             if not conversation_context or len(conversation_context) < 50:
@@ -78,6 +98,26 @@ class SummaryService:
 
             # Extract markdown, metadata, and structured data from function call
             markdown_content, metadata, structured_data = self._extract_summary_from_response(response)
+
+            # Validate and enrich structured data with Pydantic + user profile auto-fill
+            validated = validate_and_enrich_summary(
+                {
+                    "markdown_content": markdown_content,
+                    "metadata": metadata,
+                    **structured_data,
+                },
+                user=user,
+            )
+            markdown_content = validated.markdown_content
+            metadata = validated.metadata.model_dump()
+            structured_data = {
+                "client_profile": validated.client_profile.model_dump(),
+                "claimant": validated.claimant.model_dump(),
+                "respondent": validated.respondent.model_dump(),
+                "factual_narrative": validated.factual_narrative.model_dump(),
+                "evidence": validated.evidence.model_dump(),
+                "financial_info": validated.financial_info.model_dump(),
+            }
 
             # Save agent message to database
             if markdown_content:
@@ -96,23 +136,38 @@ class SummaryService:
             logger.error(f"Failed to generate summary: {e}", exc_info=True)
             raise Exception(f"Summary generation failed: {str(e)}") from e
 
-    def _build_conversation_context(self, conversation: Conversation) -> str:
-        """Build conversation context string from messages
+    def _build_conversation_context(
+        self,
+        conversation: Conversation,
+        user: User | None = None,
+        documents: list[Document] | None = None,
+    ) -> str:
+        """Build conversation context string from messages, user profile, and documents
 
         Args:
             conversation: Conversation model with messages
+            user: User model with profile data (name, address, insurance)
+            documents: List of documents with completed OCR
 
         Returns:
-            str: Formatted conversation context
+            str: Formatted conversation context with all available data
         """
         context_parts = [
             f"Konversation: {conversation.title or 'Rechtliche Beratung'}",
             f"Rechtsgebiet: {conversation.legal_area.value if conversation.legal_area else 'Nicht spezifiziert'}",
-            "",
-            "Konversationsverlauf:",
         ]
 
-        # Add all messages
+        # Add user profile (Mandantenprofil)
+        if user:
+            profile_lines = build_user_profile_context_lines(user)
+            if profile_lines:
+                context_parts.append("")
+                context_parts.append("## Mandantenprofil (Client Profile)")
+                context_parts.extend(profile_lines)
+
+        # Add conversation messages
+        context_parts.append("")
+        context_parts.append("Konversationsverlauf:")
         for message in conversation.messages:
             role_label = "Benutzer" if message.role == MessageRole.USER else "Assistent"
             context_parts.append(f"{role_label}: {message.content}")
@@ -132,11 +187,27 @@ class SummaryService:
             if conversation.why:
                 context_parts.append(f"Warum: {json.dumps(conversation.why, ensure_ascii=False)}")
 
+        # Add uploaded documents with OCR text
+        if documents:
+            context_parts.append("")
+            context_parts.append("## Hochgeladene Dokumente (Uploaded Documents)")
+            for idx, doc in enumerate(documents, 1):
+                context_parts.append(f"### Anlage {idx} — {doc.filename}")
+                if doc.file_type:
+                    context_parts.append(f"Dateityp: {doc.file_type}")
+                if doc.created_at:
+                    context_parts.append(f"Hochgeladen: {doc.created_at.strftime('%d.%m.%Y')}")
+                if doc.ocr_text:
+                    context_parts.append(f"OCR-extrahierter Text:\n{doc.ocr_text}")
+                context_parts.append("---")
+
         context_parts.append("")
         context_parts.append(
             "Bitte generiere eine vollständige rechtliche Zusammenfassung im Markdown-Format "
-            "basierend auf dem obigen Konversationsverlauf und den gesammelten Fakten. "
-            "Verwende die Funktion generate_summary mit dem vollständigen Markdown-Text und den Metadaten."
+            "basierend auf dem obigen Konversationsverlauf, dem Mandantenprofil, den gesammelten Fakten "
+            "und den hochgeladenen Dokumenten. "
+            "Verwende die Funktion generate_summary mit dem vollständigen Markdown-Text und den Metadaten. "
+            "WICHTIG: Trage alle verfügbaren Mandantendaten (Name, Adresse, Versicherung) in die Zusammenfassung ein."
         )
 
         return "\n".join(context_parts)
@@ -183,6 +254,7 @@ class SummaryService:
                                 metadata = args.get("metadata", {})
                                 # Extract structured data for PDF template
                                 structured_data = {
+                                    "client_profile": args.get("client_profile", {}),
                                     "claimant": args.get("claimant", {}),
                                     "respondent": args.get("respondent", {}),
                                     "factual_narrative": args.get("factual_narrative", {}),
@@ -210,6 +282,7 @@ class SummaryService:
                             markdown_content = args.get("markdown_content", "")
                             metadata = args.get("metadata", {})
                             structured_data = {
+                                "client_profile": args.get("client_profile", {}),
                                 "claimant": args.get("claimant", {}),
                                 "respondent": args.get("respondent", {}),
                                 "factual_narrative": args.get("factual_narrative", {}),
