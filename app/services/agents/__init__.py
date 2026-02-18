@@ -20,8 +20,8 @@ User → Router → Intake → Fact Completion → Reasoning Logic → Wrap-Up �
                                (contradiction) → Fact Completion
 """
 
-import hashlib
 import logging
+import re
 
 from mistralai import Mistral
 
@@ -32,97 +32,188 @@ from app.services.agents.router import create_router_agent
 from app.services.agents.summary import create_summary_agent
 from app.services.agents.wrapup import create_wrapup_agent
 
-
-def _compute_handoff_hash(handoff_ids: list[str]) -> str:
-    """Compute hash of handoff IDs to detect changes."""
-    content = "|".join(sorted(handoff_ids))
-    return hashlib.md5(content.encode()).hexdigest()[:16]
+# Regex for the invisible sync marker appended to instructions during version sync.
+# This marker forces a version bump on lagging agents without changing behavior.
+_SYNC_MARKER_RE = re.compile(r"\n<!-- v-sync:\d+ -->")
 
 
-def _update_handoffs_if_changed(
+def _configure_handoffs(
     client: Mistral,
     agent_id: str,
     handoff_ids: list[str],
     logger: logging.Logger,
-) -> bool:
-    """
-    Update agent handoffs ONLY if they have changed.
+) -> None:
+    """Configure agent handoffs, skipping the update if already correct.
 
-    Uses agent metadata to store a hash of the handoff configuration.
-    This prevents unnecessary updates that increment agent versions.
+    Handoff updates via ``update(handoffs=...)`` DO increment agent versions
+    on Mistral's side (confirmed empirically with SDK v1.12).  Unconditional
+    updates on every restart cause version drift (+1 per restart on all agents
+    except Summary, which has no outgoing handoffs).
 
-    Returns:
-        bool: True if update was performed, False if skipped
+    To avoid this, we fetch the agent's current handoffs and compare with the
+    desired list.  The ``handoffs`` field is a ``list[str]`` of agent IDs.
     """
-    # Get current agent to check metadata
     try:
         agent = client.beta.agents.get(agent_id=agent_id)
-    except Exception as e:
-        logger.warning(f"Failed to get agent {agent_id}: {e}")
-        # Fall back to updating
+        existing = sorted(agent.handoffs or [])
+        desired = sorted(handoff_ids)
+        if existing == desired:
+            return
         client.beta.agents.update(agent_id=agent_id, handoffs=handoff_ids)
-        return True
-
-    # Compute new handoff hash
-    new_hash = _compute_handoff_hash(handoff_ids)
-
-    # Check existing metadata for handoff hash
-    existing_metadata = getattr(agent, "metadata", {}) or {}
-    existing_handoff_hash = existing_metadata.get("handoff_hash", "")
-
-    if existing_handoff_hash == new_hash:
-        # No changes, skip update to preserve version
-        logger.debug(f"Agent {agent_id} handoffs unchanged (hash={new_hash[:8]}...), skipping update")
-        return False
-
-    # Update needed - include handoff hash in metadata
-    new_metadata = {**existing_metadata, "handoff_hash": new_hash}
-    logger.debug(f"Agent {agent_id} handoffs changed, updating (hash={new_hash[:8]}...)")
-    client.beta.agents.update(
-        agent_id=agent_id,
-        handoffs=handoff_ids,
-        metadata=new_metadata,
-    )
-    return True
+    except Exception as e:
+        logger.warning(f"Failed to configure handoffs for {agent_id}: {e}")
 
 
-def _ensure_version_bumped(
+def _sync_agent_versions(
     client: Mistral,
-    agent_id: str,
+    agents: dict[str, str],
     logger: logging.Logger,
 ) -> bool:
-    """Ensure an agent without handoffs has its version bumped to match others.
+    """Check version consistency across agents and force-sync if needed.
 
-    The Conversations API requires all agents in a handoff chain to be at the
-    same version. Agents with handoffs get bumped automatically via update(),
-    but final agents (no outgoing handoffs) stay at v0. This uses a no-op
-    description update to bump the version.
+    The Mistral Conversations API requires all agents in a handoff chain to be
+    at the same version.  When only some agent prompts change on deploy, those
+    agents get version-bumped while others stay at their old version, causing
+    error 3000 ("Response failed during handoff orchestration").
 
-    The agent's metadata tracks whether it was already bumped to avoid
-    unnecessary version increments on subsequent startups.
+    This function detects version drift and fixes it by appending an invisible
+    HTML comment (``<!-- v-sync:N -->``) to the instructions of lagging agents.
+    This forces a version bump WITHOUT changing agent IDs, preserving all
+    active conversations and server-side history.
+
+    The sync marker does NOT affect the hash-based change detection in
+    ``AgentFactory.create_agent()`` because the hash is stored in the agent's
+    description prefix and computed from the code-provided instructions (which
+    never include the marker).
 
     Returns:
-        bool: True if version was bumped, False if already bumped
+        True if all versions are consistent (either already or after sync).
     """
-    try:
-        agent = client.beta.agents.get(agent_id=agent_id)
-    except Exception as e:
-        logger.warning(f"Failed to get agent {agent_id}: {e}")
-        return False
+    # 1. Collect current versions
+    agent_data: dict[str, dict] = {}
+    for name, agent_id in agents.items():
+        try:
+            agent = client.beta.agents.get(agent_id=agent_id)
+            agent_data[name] = {
+                "id": agent_id,
+                "version": getattr(agent, "version", 0),
+                "instructions": agent.instructions or "",
+                "model": getattr(agent, "model", "?"),
+            }
+        except Exception as e:
+            logger.warning(f"  [VERIFY] {name}: failed to query - {e}")
+            return False
 
-    existing_metadata = getattr(agent, "metadata", {}) or {}
-    if existing_metadata.get("version_bumped"):
-        return False
+    versions = {n: d["version"] for n, d in agent_data.items()}
+    unique = set(versions.values())
 
-    # No-op description update to bump version, and mark as bumped in metadata
-    new_metadata = {**existing_metadata, "version_bumped": "true"}
-    client.beta.agents.update(
-        agent_id=agent_id,
-        description=agent.description or "",
-        metadata=new_metadata,
-    )
-    logger.debug(f"Agent {agent_id} version bumped to match handoff chain")
-    return True
+    # Log each agent's state
+    for name, data in agent_data.items():
+        logger.info(f"  [VERIFY] {name}: model={data['model']}, version=v{data['version']}, id={data['id']}")
+
+    if len(unique) <= 1:
+        v = unique.pop() if unique else "?"
+        logger.info(f"[AGENTS] All agents at v{v}, versions consistent")
+        return True
+
+    # 2. Drift detected -- sync lagging agents
+    max_version = max(versions.values())
+    logger.warning(f"[AGENTS] Version drift detected: {versions}. Syncing to v{max_version}...")
+
+    for name, data in agent_data.items():
+        if data["version"] < max_version:
+            # Strip any existing sync marker, then append the new one
+            clean_instructions = _SYNC_MARKER_RE.sub("", data["instructions"])
+            synced_instructions = clean_instructions + f"\n<!-- v-sync:{max_version} -->"
+            try:
+                client.beta.agents.update(agent_id=data["id"], instructions=synced_instructions)
+                logger.info(f"  [SYNC] {name}: v{data['version']} -> v{max_version}")
+            except Exception as e:
+                logger.error(f"  [SYNC] Failed to sync {name}: {e}")
+                return False
+
+    # 3. Re-verify
+    final_versions = {}
+    for name, agent_id in agents.items():
+        try:
+            agent = client.beta.agents.get(agent_id=agent_id)
+            final_versions[name] = getattr(agent, "version", 0)
+        except Exception as e:
+            logger.warning(f"  [VERIFY] {name}: failed to re-verify - {e}")
+            return False
+
+    final_unique = set(final_versions.values())
+    if len(final_unique) <= 1:
+        v = final_unique.pop()
+        logger.info(f"[AGENTS] Version sync complete. All agents at v{v}")
+        return True
+
+    logger.error(f"[AGENTS] Version drift persists after sync: {final_versions}")
+    return False
+
+
+def _create_and_configure_agents(
+    client: Mistral,
+    logger: logging.Logger,
+) -> dict[str, str]:
+    """Create all 6 agents and configure the handoff chain.
+
+    This is the inner workhorse called by ``initialize_all_agents()``.
+    It handles agent creation (via upsert) and handoff wiring but does NOT
+    verify version consistency -- that is done separately by
+    ``_sync_agent_versions()``.
+
+    Returns:
+        Mapping of agent role name to Mistral agent ID.
+    """
+    # Create all agents (upsert: create if new, update if config hash changed)
+    logger.debug("[AGENTS] Creating Intake Agent...")
+    intake_id = create_intake_agent()
+
+    logger.debug("[AGENTS] Creating Fact Completion Agent...")
+    fact_completion_id = create_fact_completion_agent()
+
+    logger.debug("[AGENTS] Creating Reasoning Logic Agent...")
+    reasoning_logic_id = create_reasoning_logic_agent()
+
+    logger.debug("[AGENTS] Creating Wrap-Up Agent...")
+    wrapup_id = create_wrapup_agent()
+
+    logger.debug("[AGENTS] Creating Summary Agent...")
+    summary_id = create_summary_agent()
+
+    logger.debug("[AGENTS] Creating Router Agent...")
+    router_id = create_router_agent()
+
+    # Configure handoff chain (skips PATCH if handoffs already match).
+    logger.debug("[AGENTS] Configuring handoff chain...")
+
+    _configure_handoffs(client, router_id, [intake_id], logger)
+    logger.debug("  Router -> Intake")
+
+    _configure_handoffs(client, intake_id, [fact_completion_id], logger)
+    logger.debug("  Intake -> Fact Completion")
+
+    _configure_handoffs(client, fact_completion_id, [reasoning_logic_id], logger)
+    logger.debug("  Fact Completion -> Reasoning Logic")
+
+    _configure_handoffs(client, reasoning_logic_id, [wrapup_id, fact_completion_id], logger)
+    logger.debug("  Reasoning Logic -> [Wrap-Up, Fact Completion]")
+
+    _configure_handoffs(client, wrapup_id, [summary_id, fact_completion_id], logger)
+    logger.debug("  Wrap-Up -> [Summary, Fact Completion]")
+
+    # Summary is final -- no outgoing handoffs, no configuration needed.
+    logger.debug("  Summary (final, no outgoing handoffs)")
+
+    return {
+        "router": router_id,
+        "intake": intake_id,
+        "fact_completion": fact_completion_id,
+        "reasoning_logic": reasoning_logic_id,
+        "wrapup": wrapup_id,
+        "summary": summary_id,
+    }
 
 
 __all__ = [
@@ -149,116 +240,35 @@ class MistralAgentsService:
         self._logger = logging.getLogger(__name__)
 
     async def initialize_all_agents(self) -> dict[str, str]:
-        """Create all 6 agents and configure handoffs via Mistral API
+        """Create all 6 agents, configure handoffs, and ensure version consistency.
 
         The agent workflow is:
-        Router → Intake → Fact Completion → Reasoning Logic → Wrap-Up → Summary
-                                                    ↓
-                                  (contradiction) → Fact Completion
+        Router -> Intake -> Fact Completion -> Reasoning Logic -> Wrap-Up -> Summary
+                                                    |
+                                  (contradiction) -> Fact Completion
 
-        Handoffs are configured via client.beta.agents.update() to enable
-        proper agent orchestration with Mistral's Conversations API.
+        After creation and handoff wiring, agent versions are verified.  If any
+        agents are at different versions (caused by partial prompt updates on
+        deploy), lagging agents are force-bumped via an invisible instruction
+        marker to restore consistency.  This prevents error 3000 during handoffs
+        while preserving all active conversations (agent IDs stay the same).
 
         Returns:
             dict[str, str]: Mapping of agent names to agent IDs
         """
-        self._logger.info("🚀 [AGENTS] Initializing all 6 Mistral agents...")
+        self._logger.info("[AGENTS] Initializing all 6 Mistral agents...")
 
-        # Create Mistral client with optimized timeout settings
         from app.services.mistral_client import get_mistral_client
 
         client = get_mistral_client()
 
-        # Create all agents with progress logging
-        self._logger.debug("[AGENTS] Creating Intake Agent...")
-        intake_id = create_intake_agent()
+        # Step 1: Create agents and configure handoffs
+        self.agents = _create_and_configure_agents(client, self._logger)
 
-        self._logger.debug("[AGENTS] Creating Fact Completion Agent...")
-        fact_completion_id = create_fact_completion_agent()
+        self._logger.info("[AGENTS] All 6 agents initialized successfully!")
 
-        self._logger.debug("[AGENTS] Creating Reasoning Logic Agent (Magistral model)...")
-        reasoning_logic_id = create_reasoning_logic_agent()
-
-        self._logger.debug("[AGENTS] Creating Wrap-Up Agent...")
-        wrapup_id = create_wrapup_agent()
-
-        self._logger.debug("[AGENTS] Creating Summary Agent...")
-        summary_id = create_summary_agent()
-
-        self._logger.debug("[AGENTS] Creating Router Agent...")
-        router_id = create_router_agent()
-
-        # Configure handoffs via Mistral API (only if changed)
-        self._logger.debug("[AGENTS] Configuring handoff chain (if changed)...")
-
-        # Router can hand off to Intake
-        if _update_handoffs_if_changed(client, router_id, [intake_id], self._logger):
-            self._logger.debug("  Router → Intake ✓ (updated)")
-        else:
-            self._logger.debug("  Router → Intake ✓ (unchanged)")
-
-        # Intake can hand off to Fact Completion
-        if _update_handoffs_if_changed(client, intake_id, [fact_completion_id], self._logger):
-            self._logger.debug("  Intake → Fact Completion ✓ (updated)")
-        else:
-            self._logger.debug("  Intake → Fact Completion ✓ (unchanged)")
-
-        # Fact Completion can hand off to Reasoning Logic
-        if _update_handoffs_if_changed(client, fact_completion_id, [reasoning_logic_id], self._logger):
-            self._logger.debug("  Fact Completion → Reasoning Logic ✓ (updated)")
-        else:
-            self._logger.debug("  Fact Completion → Reasoning Logic ✓ (unchanged)")
-
-        # Reasoning Logic can hand off to Wrap-Up (if no issues) or back to Fact Completion (if contradiction)
-        if _update_handoffs_if_changed(client, reasoning_logic_id, [wrapup_id, fact_completion_id], self._logger):
-            self._logger.debug("  Reasoning Logic → [Wrap-Up, Fact Completion] ✓ (updated)")
-        else:
-            self._logger.debug("  Reasoning Logic → [Wrap-Up, Fact Completion] ✓ (unchanged)")
-
-        # Wrap-Up can hand off to Summary (on confirmation) or back to Fact Completion (on correction)
-        if _update_handoffs_if_changed(client, wrapup_id, [summary_id, fact_completion_id], self._logger):
-            self._logger.debug("  Wrap-Up → [Summary, Fact Completion] ✓ (updated)")
-        else:
-            self._logger.debug("  Wrap-Up → [Summary, Fact Completion] ✓ (unchanged)")
-
-        # Summary is final — no outgoing handoffs, but needs version bump to match others.
-        # Without this, Summary stays at v0 while others are v1 → 404 on append_stream().
-        if _ensure_version_bumped(client, summary_id, self._logger):
-            self._logger.debug("  Summary (final, version bumped) ✓")
-        else:
-            self._logger.debug("  Summary (final) ✓ (already bumped)")
-
-        # Store all agent IDs
-        self.agents = {
-            "router": router_id,
-            "intake": intake_id,
-            "fact_completion": fact_completion_id,
-            "reasoning_logic": reasoning_logic_id,
-            "wrapup": wrapup_id,
-            "summary": summary_id,
-        }
-
-        self._logger.info("✅ [AGENTS] All 6 agents initialized successfully!")
-        self._logger.debug(f"[AGENTS] Agent IDs: {self.agents}")
-
-        # Verify agent models and versions by querying Mistral API
-        versions = {}
-        for name, agent_id in self.agents.items():
-            try:
-                agent = client.beta.agents.get(agent_id=agent_id)
-                version = getattr(agent, "version", "?")
-                versions[name] = version
-                self._logger.info(f"  [VERIFY] {name}: model={agent.model}, version=v{version}, id={agent_id}")
-            except Exception as e:
-                self._logger.warning(f"  [VERIFY] {name}: failed to verify - {e}")
-
-        # Warn if agent versions are inconsistent (can cause error 3000 on handoffs)
-        unique_versions = set(versions.values())
-        if len(unique_versions) > 1:
-            self._logger.warning(
-                f"⚠️ [AGENTS] Version mismatch detected! Versions: {versions}. "
-                "This may cause error 3000 during handoffs. Consider resetting agents."
-            )
+        # Step 2: Verify version consistency and auto-sync if needed
+        _sync_agent_versions(client, self.agents, self._logger)
 
         return self.agents
 
@@ -277,7 +287,7 @@ class MistralAgentsService:
     @property
     def is_initialized(self) -> bool:
         """Check if all agents are initialized"""
-        return len(self.agents) == 6  # Now 6 agents
+        return len(self.agents) == 6
 
     def status(self) -> dict:
         """Get agent initialization status for health checks

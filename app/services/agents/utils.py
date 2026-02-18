@@ -59,7 +59,7 @@ class AgentFactory:
         logger = logging.getLogger(__name__)
 
         # 1. List existing agents to check for duplicates
-        # Note: Explicitly pass metadata={} to avoid SDK sentinel value issue
+        # Note: metadata={} is required to avoid SDK sentinel value issue (422 error)
         existing_agents = self.client.beta.agents.list(metadata={})
 
         target_agent = None
