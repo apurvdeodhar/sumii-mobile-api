@@ -525,7 +525,7 @@ async def _process_single_event(
             tool_call_id = getattr(event.data, "tool_call_id", None)
             function_name = getattr(event.data, "name", "unknown")
             arguments = getattr(event.data, "arguments", "")
-            logger.info(f"🛠️ [FUNCTION_CALL] Agent {current_agent_name} calling: {function_name} (id: {tool_call_id})")
+            logger.debug(f"🛠️ [FUNCTION_CALL] Agent {current_agent_name} calling: {function_name} (id: {tool_call_id})")
             logger.debug(
                 f"[FUNCTION_CALL] Arguments: {arguments[:200]}..."
                 if len(str(arguments)) > 200
@@ -574,12 +574,13 @@ async def _generate_summary_background(
     summary_case_data: dict,
     user_language: str,
     thinking_steps_id: UUID | None,
+    websocket: WebSocket | None = None,
 ) -> None:
     """Background task: Generate PDF summary, upload to S3, create DB record, send push notification.
 
     Runs independently of the WebSocket connection via asyncio.create_task().
     Uses its own DB session (cannot share with WS handler's session).
-    All client notification is via push notification, NOT WebSocket.
+    Sends summary_ready event via WebSocket (if still connected) + push notification.
     """
     from app.database import AsyncSessionLocal
     from app.models import Summary
@@ -652,12 +653,21 @@ async def _generate_summary_background(
             # Build attached_documents list for Anlage cover page in template
             attached_doc_info = [{"filename": doc.filename} for doc in conversation_documents]
 
+            # Detect language from markdown content
+            detected_language = "de"
+            if markdown_content:
+                german_indicators = ["Fallzusammenfassung", "Mandant", "Anspruchsteller", "Sachverhalt", "begehrt"]
+                content_lower = markdown_content.lower()
+                german_count = sum(1 for ind in german_indicators if ind.lower() in content_lower)
+                detected_language = "de" if german_count >= 2 else "en"
+
             # Prepare structured data for PDF (already enriched by validate_and_enrich_summary)
             structured_data = summary_case_data.get("structured_case_data", summary_case_data)
             pdf_content = pdf_service.template_to_pdf(
                 structured_data,
                 str(summary_id),
                 attached_documents=attached_doc_info if attached_doc_info else None,
+                language=detected_language,
             )
 
             # Download and merge actual document pages into the PDF
@@ -712,6 +722,22 @@ async def _generate_summary_background(
             await db.refresh(new_summary)
 
             logger.info(f"✅ [BACKGROUND] Summary {summary_id} created")
+
+            # Send summary_ready event via WebSocket (if still connected)
+            if websocket:
+                try:
+                    await websocket.send_json(
+                        {
+                            "type": "summary_ready",
+                            "summaryId": str(new_summary.id),
+                            "conversationId": str(conversation_id),
+                            "referenceNumber": reference_number,
+                            "timestamp": datetime.now(timezone.utc).isoformat(),
+                        }
+                    )
+                    logger.info(f"[BACKGROUND] Sent summary_ready WS event for {summary_id}")
+                except Exception:
+                    logger.debug("[BACKGROUND] WS disconnected, summary_ready sent via push only")
 
             # Create Notification DB record + send push notification
             try:
@@ -1648,6 +1674,7 @@ async def process_with_agents(
                     summary_case_data=summary_case_data,
                     user_language=user_language,
                     thinking_steps_id=thinking_steps.id if thinking_steps else None,
+                    websocket=websocket,
                 )
             )
 

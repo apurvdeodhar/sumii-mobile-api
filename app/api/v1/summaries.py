@@ -18,6 +18,7 @@ from sqlalchemy.orm import selectinload
 from app.database import get_db
 from app.models import Conversation, Summary, User
 from app.models.conversation import LegalArea, Urgency
+from app.models.document import Document, UploadStatus
 from app.schemas.summary import SummaryCreate, SummaryResponse, SummaryUpdate
 from app.services.agents import MistralAgentsService, get_mistral_agents_service
 
@@ -28,6 +29,28 @@ from app.users import current_active_user
 from app.utils.reference_number import generate_sumii_reference_number
 
 logger = logging.getLogger(__name__)
+
+
+def _detect_summary_language(markdown_content: str) -> str:
+    """Detect language from Summary Agent markdown output.
+
+    Checks for German-specific headers/keywords in the markdown content.
+    Returns "de" for German, "en" for English.
+    """
+    german_indicators = [
+        "Fallzusammenfassung",
+        "Kurzzusammenfassung",
+        "Mandant",
+        "Anspruchsteller",
+        "Anspruchsgegner",
+        "Sachverhalt",
+        "Beweisverzeichnis",
+        "begehrt",
+    ]
+    content_lower = markdown_content.lower()
+    german_count = sum(1 for indicator in german_indicators if indicator.lower() in content_lower)
+    return "de" if german_count >= 2 else "en"
+
 
 router = APIRouter()
 
@@ -148,12 +171,38 @@ async def create_summary(
             "metadata": metadata,
         }
 
-        # Generate PDF using professional template
+        # Detect language from markdown and generate PDF
         from app.services.pdf_service import PDFService
 
         pdf_service = PDFService()
-        # Use template_to_pdf for structured professional output
-        pdf_bytes = pdf_service.template_to_pdf(case_data, reference_number)
+        detected_language = _detect_summary_language(markdown_content)
+
+        # Fetch uploaded documents for this conversation
+        doc_result = await db.execute(
+            select(Document)
+            .where(Document.conversation_id == conversation.id)
+            .where(Document.upload_status == UploadStatus.COMPLETED)
+            .order_by(Document.created_at)
+        )
+        conv_documents = doc_result.scalars().all()
+
+        # Pass document filenames to template for Anlagen cover page
+        attached_docs = [{"filename": doc.filename} for doc in conv_documents] if conv_documents else None
+        pdf_bytes = pdf_service.template_to_pdf(
+            case_data, reference_number, language=detected_language, attached_documents=attached_docs
+        )
+
+        # Merge uploaded documents as appendix pages
+        if conv_documents:
+            doc_tuples: list[tuple[str, str, bytes]] = []
+            for doc in conv_documents:
+                try:
+                    doc_bytes = storage_service.download_document(doc.s3_key)
+                    doc_tuples.append((doc.filename, doc.file_type, doc_bytes))
+                except Exception as e:
+                    logger.warning(f"Failed to download document {doc.filename} for PDF merge: {e}")
+            if doc_tuples:
+                pdf_bytes = pdf_service.merge_with_documents(pdf_bytes, doc_tuples)
 
         # Upload markdown to S3
         markdown_bytes = markdown_content.encode("utf-8")
@@ -627,11 +676,37 @@ async def regenerate_summary(
             "metadata": metadata,
         }
 
-        # Generate PDF using professional template
+        # Detect language from markdown and generate PDF
         from app.services.pdf_service import PDFService
 
         pdf_service = PDFService()
-        pdf_bytes = pdf_service.template_to_pdf(case_data, summary.reference_number)
+        detected_language = _detect_summary_language(markdown_content)
+
+        # Fetch uploaded documents for this conversation
+        doc_result = await db.execute(
+            select(Document)
+            .where(Document.conversation_id == summary.conversation_id)
+            .where(Document.upload_status == UploadStatus.COMPLETED)
+            .order_by(Document.created_at)
+        )
+        conv_documents = doc_result.scalars().all()
+
+        attached_docs = [{"filename": doc.filename} for doc in conv_documents] if conv_documents else None
+        pdf_bytes = pdf_service.template_to_pdf(
+            case_data, summary.reference_number, language=detected_language, attached_documents=attached_docs
+        )
+
+        # Merge uploaded documents as appendix pages
+        if conv_documents:
+            doc_tuples: list[tuple[str, str, bytes]] = []
+            for doc in conv_documents:
+                try:
+                    doc_bytes = storage_service.download_document(doc.s3_key)
+                    doc_tuples.append((doc.filename, doc.file_type, doc_bytes))
+                except Exception as e:
+                    logger.warning(f"Failed to download document {doc.filename} for PDF merge: {e}")
+            if doc_tuples:
+                pdf_bytes = pdf_service.merge_with_documents(pdf_bytes, doc_tuples)
 
         # Upload markdown to storage
         markdown_bytes = markdown_content.encode("utf-8")
