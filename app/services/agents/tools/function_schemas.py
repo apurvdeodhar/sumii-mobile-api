@@ -142,7 +142,12 @@ SUMMARY_GENERATION_SCHEMA = {
                 # Human-readable markdown for mobile app bottom sheet
                 "markdown_content": {
                     "type": "string",
-                    "description": "Complete markdown summary with all structured sections for mobile display",
+                    "description": (
+                        "Complete markdown summary for mobile display. "
+                        "Kurzzusammenfassung MUST answer all 5Ws (who by name, what, when, where, why). "
+                        "Chronological timeline entries MUST be detailed (2-3 sentences each, not one-liners). "
+                        "Evidence items MUST include OCR-extracted key data."
+                    ),
                 },
                 # Client profile information (Mandant) - from MANDANTENPROFIL in conversation
                 "client_profile": {
@@ -221,7 +226,17 @@ SUMMARY_GENERATION_SCHEMA = {
                                 "type": "object",
                                 "properties": {
                                     "date": {"type": "string", "description": "Date in DD.MM.YYYY or description"},
-                                    "event": {"type": "string", "description": "What happened"},
+                                    "event": {
+                                        "type": "string",
+                                        "description": (
+                                            "Detailed description of what happened (2-3 sentences). "
+                                            "Include: who was involved, what specifically occurred, "
+                                            "what the impact was, and any amounts/details from OCR documents. "
+                                            "NOT a one-liner like 'Heizung defekt' — instead: "
+                                            "'Heizungsausfall in allen drei Räumen (Küche, Bad, Wohnzimmer). "
+                                            "Raumtemperatur fällt deutlich ab, Mandant kann nachts nicht schlafen.'"
+                                        ),
+                                    },
                                     "evidence_ref": {
                                         "type": "string",
                                         "description": "Reference to evidence (e.g., 'Anlage 1' or document name)",
