@@ -31,27 +31,6 @@ from app.utils.reference_number import generate_sumii_reference_number
 logger = logging.getLogger(__name__)
 
 
-def _detect_summary_language(markdown_content: str) -> str:
-    """Detect language from Summary Agent markdown output.
-
-    Checks for German-specific headers/keywords in the markdown content.
-    Returns "de" for German, "en" for English.
-    """
-    german_indicators = [
-        "Fallzusammenfassung",
-        "Kurzzusammenfassung",
-        "Mandant",
-        "Anspruchsteller",
-        "Anspruchsgegner",
-        "Sachverhalt",
-        "Beweisverzeichnis",
-        "begehrt",
-    ]
-    content_lower = markdown_content.lower()
-    german_count = sum(1 for indicator in german_indicators if indicator.lower() in content_lower)
-    return "de" if german_count >= 2 else "en"
-
-
 router = APIRouter()
 
 
@@ -175,7 +154,7 @@ async def create_summary(
         from app.services.pdf_service import PDFService
 
         pdf_service = PDFService()
-        detected_language = _detect_summary_language(markdown_content)
+        detected_language = "de"  # Always German for the German legal market
 
         # Fetch uploaded documents for this conversation
         doc_result = await db.execute(
@@ -680,7 +659,7 @@ async def regenerate_summary(
         from app.services.pdf_service import PDFService
 
         pdf_service = PDFService()
-        detected_language = _detect_summary_language(markdown_content)
+        detected_language = "de"  # Always German for the German legal market
 
         # Fetch uploaded documents for this conversation
         doc_result = await db.execute(
