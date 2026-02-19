@@ -55,6 +55,7 @@ class LawyerConnection(Base):
     # Lawyer information (from sumii-anwalt)
     lawyer_id = Column(Integer, nullable=False, index=True)  # Lawyer ID from sumii-anwalt (not UUID)
     lawyer_name = Column(String(200), nullable=True)  # Cached lawyer name for display
+    lawyer_firm = Column(String(200), nullable=True)  # Cached firm name for display
 
     # Connection request metadata
     user_message = Column(Text, nullable=True)  # Optional message from user when requesting connection

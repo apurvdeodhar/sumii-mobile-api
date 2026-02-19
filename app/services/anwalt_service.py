@@ -81,10 +81,7 @@ class AnwaltService:
             raise Exception(f"Failed to search lawyers: {str(e)}") from e
 
     async def get_lawyer_profile(self, lawyer_id: int) -> dict[str, Any] | None:
-        """Get lawyer profile by ID
-
-        Note: This endpoint may not exist in sumii-anwalt yet.
-        For now, we can search and filter by ID client-side.
+        """Get lawyer profile by ID via dedicated endpoint
 
         Args:
             lawyer_id: Lawyer ID from sumii-anwalt
@@ -93,19 +90,19 @@ class AnwaltService:
             Lawyer profile dictionary or None if not found
 
         Raises:
-            httpx.HTTPError: If API request fails
+            Exception: If API request fails (non-404)
         """
-        # Search all lawyers and filter by ID
-        # This is inefficient but works until sumii-anwalt adds GET /anwalt/profiles/{id}
+        url = f"{self.base_url}/anwalt/profiles/{lawyer_id}"
         try:
-            lawyers = await self.search_lawyers(language="de")  # Default language
-            for lawyer in lawyers:
-                if lawyer.get("id") == lawyer_id:
-                    return lawyer
-            return None
-        except Exception as e:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                response = await client.get(url)
+                if response.status_code == 404:
+                    return None
+                response.raise_for_status()
+                return response.json()
+        except httpx.HTTPError as e:
             logger.error(f"Failed to get lawyer profile {lawyer_id}: {e}")
-            raise
+            raise Exception(f"Failed to get lawyer profile: {str(e)}") from e
 
     async def handoff_case(
         self,
