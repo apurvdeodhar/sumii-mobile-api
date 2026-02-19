@@ -71,6 +71,7 @@ module "rds" {
   vpc_security_group_ids = [module.rds_security_group[0].security_group_id]
   create_db_subnet_group = true
   subnet_ids             = split(",", data.aws_ssm_parameter.private_subnets[0].value)
+  apply_immediately      = true
   skip_final_snapshot    = true
   publicly_accessible    = false
 
