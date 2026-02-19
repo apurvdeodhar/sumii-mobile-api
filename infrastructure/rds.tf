@@ -62,7 +62,7 @@ module "rds" {
   engine_version         = "14"
   family                 = "postgres14"
   major_engine_version   = "14"
-  instance_class         = "db.t3.micro"
+  instance_class         = "db.t3.small"
   allocated_storage      = 20
   db_name                = "sumii_prod"
   username               = "postgres"

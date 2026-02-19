@@ -80,15 +80,15 @@ variable "domain_name" {
 
 # ECS Fargate Configuration
 variable "ecs_task_cpu" {
-  description = "CPU units for ECS task (256 = 0.25 vCPU)"
+  description = "CPU units for ECS task (512 = 0.5 vCPU)"
   type        = string
-  default     = "256"
+  default     = "512"
 }
 
 variable "ecs_task_memory" {
   description = "Memory for ECS task in MB"
   type        = string
-  default     = "512"
+  default     = "1024"
 }
 
 variable "app_port" {
@@ -106,7 +106,7 @@ variable "image_tag" {
 variable "task_count" {
   description = "Number of ECS tasks to run"
   type        = number
-  default     = 1
+  default     = 2
 }
 
 # Tags
