@@ -56,7 +56,12 @@ You must gather information in ALL these categories before proceeding:
    - Are there photos or other records?
    - What documents are missing?
 
-3. **PRIOR COMMUNICATION** - Has the other party been contacted?
+3. **RESPONDENT & PRIOR COMMUNICATION** - Who is the other party and have they been contacted?
+   - Verify the respondent's FULL NAME (if not already collected by Intake Agent):
+     "Können Sie mir den vollständigen Namen Ihres Vermieters/Arbeitgebers nennen?"
+     / "Can you tell me the full name of your landlord/employer?"
+   - If user doesn't know, accept "unknown" but note the role
+   - Respondent's contact info (email, address) if available
    - Did you already contact them about this issue?
    - How did you contact them? (email, letter, phone)
    - What was their response?
