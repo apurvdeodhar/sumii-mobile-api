@@ -1,8 +1,10 @@
 """Documents API - Upload, retrieve, and delete documents"""
 
+import logging
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
+from fastapi.responses import RedirectResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -12,6 +14,9 @@ from app.models.user import User
 from app.schemas.document import DocumentListResponse, DocumentResponse, DocumentUpdate
 from app.services.storage_service import StorageService, get_storage_service
 from app.users import current_active_user
+from app.utils.security import verify_token_ws
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/documents", tags=["documents"])
 
@@ -192,6 +197,48 @@ async def get_document(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to access this document")
 
     return document
+
+
+@router.get("/{document_id}/view")
+async def view_document(
+    document_id: UUID,
+    token: str = Query(..., description="JWT token for authentication"),
+    db: AsyncSession = Depends(get_db),
+    storage_service: StorageService = Depends(get_storage_service),
+) -> RedirectResponse:
+    """View document via presigned URL redirect.
+
+    JWT-authenticated via query parameter (same pattern as WebSocket /ws?token=).
+    Generates a fresh short-lived presigned URL and redirects the browser to it.
+    The S3 bucket name is never exposed to the client.
+    """
+    # Verify JWT token (same as WebSocket auth)
+    try:
+        payload = verify_token_ws(token)
+        user_id_str = payload.get("sub")
+        if not user_id_str:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
+    except Exception:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired token")
+
+    # Get document and verify ownership
+    result = await db.execute(select(Document).where(Document.id == document_id))
+    document = result.scalar_one_or_none()
+
+    if not document:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
+
+    if str(document.user_id) != user_id_str:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
+
+    if not document.s3_key:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not uploaded")
+
+    # Generate fresh presigned URL (1-day expiry — short-lived for security)
+    presigned_url = storage_service.generate_presigned_url(document.s3_key, expiration_days=1)
+    logger.info(f"Document view: {document.filename} ({document_id}) by user {user_id_str}")
+
+    return RedirectResponse(url=presigned_url, status_code=302)
 
 
 @router.get("/conversation/{conversation_id}", response_model=DocumentListResponse)
