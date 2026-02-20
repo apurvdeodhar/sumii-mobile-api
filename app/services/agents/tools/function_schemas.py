@@ -257,13 +257,6 @@ SUMMARY_GENERATION_SCHEMA = {
                             "items": {"type": "string"},
                             "description": "Names/descriptions of witnesses if mentioned by user",
                         },
-                        "jurisdiction": {
-                            "type": "string",
-                            "description": (
-                                "Relevant jurisdiction (e.g., 'Amtsgericht Berlin-Kreuzberg') "
-                                "if determinable from location"
-                            ),
-                        },
                     },
                     "required": ["claimant_goal", "chronological_timeline"],
                 },

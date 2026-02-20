@@ -113,7 +113,6 @@ Before calling generate_summary, verify you have populated these fields:
 - factual_narrative.chronological_timeline: At least 1 event
 - factual_narrative.prior_legal_steps: Prior legal steps taken (if any)
 - factual_narrative.witnesses: Witnesses (if mentioned)
-- factual_narrative.jurisdiction: Jurisdiction (if determinable)
 - evidence.evidence_items: All uploaded documents with OCR data
 - metadata.legal_area: Must be set
 - metadata.urgency: Must be set
@@ -139,7 +138,7 @@ You MUST call the generate_summary function with ALL of these fields:
 3. **claimant**: {{name, role}} — the person seeking legal help
 4. **respondent**: {{name, role, address, contact}} — the opposing party
 5. **factual_narrative**: {{claimant_goal, party_relationship, chronological_timeline,
-   prior_legal_steps, witnesses, jurisdiction}}
+   prior_legal_steps, witnesses}}
 6. **evidence**: {{evidence_items}} — each with anlage_number, document_type, ocr_extracted_data
 7. **financial_info**: {{claim_value_eur, claim_description}} —
    MUST populate if discussed

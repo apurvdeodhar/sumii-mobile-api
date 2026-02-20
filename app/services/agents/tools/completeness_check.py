@@ -98,14 +98,6 @@ COMPLETENESS_CHECK_SCHEMA = {
                         "Empty array if none mentioned."
                     ),
                 },
-                "jurisdiction": {
-                    "type": "string",
-                    "description": (
-                        "Relevant court jurisdiction based on location "
-                        "(e.g., 'Amtsgericht Berlin-Kreuzberg', 'Arbeitsgericht München'). "
-                        "Empty string if not determinable."
-                    ),
-                },
                 "deadline_info": {
                     "type": "string",
                     "description": (
@@ -141,7 +133,7 @@ COMPLETENESS_CHECK_SCHEMA = {
                     "description": (
                         "List of critical fields still missing. Critical fields include: "
                         "client_name, opposing_party, incident_date, desired_outcome, "
-                        "date_of_birth, occupation, legal_insurance."
+                        "legal_insurance."
                     ),
                 },
                 "missing_case_fields": {
@@ -149,8 +141,9 @@ COMPLETENESS_CHECK_SCHEMA = {
                     "items": {"type": "string"},
                     "description": (
                         "List of case detail fields still missing: "
-                        "prior_legal_steps, witnesses, jurisdiction, deadline_info, "
-                        "financial_claim_value. Report ALL that are empty."
+                        "prior_legal_steps, witnesses, deadline_info, "
+                        "financial_claim_value, date_of_birth (only if relevant), "
+                        "occupation (only if relevant). Report ALL that are empty."
                     ),
                 },
                 "missing_profile_fields": {
@@ -173,7 +166,6 @@ COMPLETENESS_CHECK_SCHEMA = {
                 "legal_insurance",
                 "prior_legal_steps",
                 "witnesses",
-                "jurisdiction",
                 "deadline_info",
                 "financial_claim_value",
                 "documents_uploaded",
