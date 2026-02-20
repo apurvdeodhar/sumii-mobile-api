@@ -60,9 +60,12 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
         """Called after user registration - sends welcome email + triggers verification"""
         from app.services.email_service import EmailService
 
-        email_service = EmailService()
-        language = user.language or "de"
-        await email_service.send_welcome_email(user.email, language=language)
+        try:
+            email_service = EmailService()
+            language = user.language or "de"
+            await email_service.send_welcome_email(user.email, language=language)
+        except Exception as e:
+            logger.warning(f"Failed to send welcome email to {user.email}: {e}")
 
         # OAuth users are already verified by their provider — skip verification email
         if user.oauth_accounts:
@@ -97,15 +100,21 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
         """Send password reset email via AWS SES"""
         from app.services.email_service import EmailService
 
-        email_service = EmailService()
-        await email_service.send_password_reset_email(user.email, token, language=user.language or "de")
+        try:
+            email_service = EmailService()
+            await email_service.send_password_reset_email(user.email, token, language=user.language or "de")
+        except Exception as e:
+            logger.warning(f"Failed to send password reset email to {user.email}: {e}")
 
     async def on_after_request_verify(self, user: User, token: str, request: Request | None = None):
         """Send email verification link via AWS SES"""
         from app.services.email_service import EmailService
 
-        email_service = EmailService()
-        await email_service.send_verification_email(user.email, token, language=user.language or "de")
+        try:
+            email_service = EmailService()
+            await email_service.send_verification_email(user.email, token, language=user.language or "de")
+        except Exception as e:
+            logger.warning(f"Failed to send verification email to {user.email}: {e}")
 
 
 async def get_user_manager(
