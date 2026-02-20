@@ -70,6 +70,12 @@ _AGENT_NAME_REPLACEMENTS: list[tuple[re.Pattern, str]] = [
         ),
         "Let me continue helping you.",
     ),
+    # German lawyer connection leaks — agent should NEVER mention connecting to a lawyer
+    (re.compile(r"(?:verbinde|verbinden)\s+(?:dich|Sie)\s+(?:mit|zu)\s+(?:einem?\s+)?Anw[aä]lt", re.I), ""),
+    (re.compile(r"Anwalt\s+(?:kontaktieren|vermitteln|weiterleiten)", re.I), ""),
+    (re.compile(r"(?:leite|weiterleite).*?(?:an\s+(?:einen?\s+)?Anw[aä]lt|weiter)", re.I), ""),
+    # English lawyer connection leaks
+    (re.compile(r"(?:connect|transfer|refer)\s+you\s+(?:to|with)\s+(?:a\s+)?lawyer", re.I), ""),
 ]
 
 
