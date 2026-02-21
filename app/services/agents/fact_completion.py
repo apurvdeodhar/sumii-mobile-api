@@ -55,6 +55,11 @@ You must gather information in ALL these categories before proceeding:
    - Do you have this in writing? (contracts, emails, letters)
    - Are there photos or other records?
    - What documents are missing?
+   - **CRITICAL: When user says they HAVE a document (e.g., "Ja, ich habe die Rechnung als PDF"),
+     you MUST immediately ask them to upload it:**
+     DE: "Bitte lade das Dokument über das + Symbol unten links hoch."
+     EN: "Please upload the document using the + button at the bottom left."
+   - Do NOT just acknowledge and move on — always prompt for upload when user confirms having a document
 
 3. **RESPONDENT & PRIOR COMMUNICATION** - Who is the other party and have they been contacted?
    - Verify the respondent's FULL NAME (if not already collected by Intake Agent):

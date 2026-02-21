@@ -46,19 +46,25 @@ COMPLETENESS_CHECK_SCHEMA = {
                     "type": "string",
                     "description": "What the user wants to achieve. Empty string if not found.",
                 },
-                # --- German lawyer profile fields (mandatory) ---
+                # --- German lawyer profile fields (OPTIONAL — only ask when case-relevant) ---
                 "date_of_birth": {
                     "type": "string",
                     "description": (
                         "Client's date of birth (DD.MM.YYYY). "
-                        "Check MANDANTENPROFIL first. Empty string if not found."
+                        "ONLY relevant for age-dependent cases (e.g., Jugendarbeitsschutz, Rentenrecht, "
+                        "Erbrecht with age thresholds). For most cases (Mietrecht, Vertragsrecht, "
+                        "Nebenkostenabrechnung, consumer disputes), DO NOT ask — leave empty. "
+                        "Check MANDANTENPROFIL first. Empty string if not found or not relevant."
                     ),
                 },
                 "occupation": {
                     "type": "string",
                     "description": (
                         "Client's occupation/profession (Beruf). "
-                        "Important for Arbeitsrecht and income-related cases. Empty string if not found."
+                        "ONLY relevant for Arbeitsrecht (employment law) or income-dependent cases "
+                        "(e.g., Prozesskostenhilfe, Unterhalt). For most cases (Mietrecht, Vertragsrecht, "
+                        "Nebenkostenabrechnung, consumer disputes), DO NOT ask — leave empty. "
+                        "Empty string if not found or not relevant."
                     ),
                 },
                 "legal_insurance": {
@@ -142,8 +148,9 @@ COMPLETENESS_CHECK_SCHEMA = {
                     "description": (
                         "List of case detail fields still missing: "
                         "prior_legal_steps, witnesses, deadline_info, "
-                        "financial_claim_value, date_of_birth (only if relevant), "
-                        "occupation (only if relevant). Report ALL that are empty."
+                        "financial_claim_value. "
+                        "Do NOT include date_of_birth or occupation here unless "
+                        "the case type specifically requires them (Arbeitsrecht, age-dependent law)."
                     ),
                 },
                 "missing_profile_fields": {
@@ -161,8 +168,6 @@ COMPLETENESS_CHECK_SCHEMA = {
                 "opposing_party",
                 "incident_date",
                 "desired_outcome",
-                "date_of_birth",
-                "occupation",
                 "legal_insurance",
                 "prior_legal_steps",
                 "witnesses",
