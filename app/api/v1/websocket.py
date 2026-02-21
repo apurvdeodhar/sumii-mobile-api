@@ -543,15 +543,23 @@ async def _process_single_event(
             return ("function_call", tool_call_id, function_name, arguments)
 
         case ResponseErrorEvent():
-            # Error occurred
+            # Error occurred — log full details
             error_msg = getattr(event.data, "message", "Unknown error")
             error_code = getattr(event.data, "code", None)
             logger.error(f"❌ [RESPONSE_ERROR] Agent {current_agent_name}: {error_msg} (code: {error_code})")
             logger.debug(f"[RESPONSE_ERROR] Full event data: {event.data}")
+
+            # Error 3000: poisoned conversation state (incomplete function call).
+            # Don't send error to client yet — caller will attempt restart_stream recovery.
+            if error_code == 3000:
+                logger.warning("[ERROR_3000] Conversation poisoned — will attempt restart_stream recovery")
+                return "error_3000"
+
+            # All other errors: send user-friendly message
             await websocket.send_json(
                 {
                     "type": "error",
-                    "error": str(error_msg),
+                    "error": "Something went wrong. Please try again.",
                     "code": "conversation_error",
                     "timestamp": datetime.now(timezone.utc).isoformat(),
                 }
@@ -979,6 +987,118 @@ async def _recover_from_stream_timeout(
         return None
 
 
+async def _recover_from_error_3000(
+    client,
+    conversation: Conversation,
+    user_message_content: str,
+    db: AsyncSession,
+) -> dict | None:
+    """Recover from error 3000 by forking the conversation via restart_stream.
+
+    Error 3000 ("Failed to create conversation response") occurs when the
+    server-side conversation has a pending function call with no result.
+    This happens when a stream stalls/times out mid-function-call.
+
+    Recovery: use get_history to find the last safe user message entry,
+    then restart_stream to fork the conversation from that point.
+    Consumes the entire recovery stream and returns the response text.
+
+    Args:
+        client: Mistral client instance
+        conversation: Conversation with poisoned mistral_conversation_id
+        user_message_content: The user message that triggered the error
+        db: Database session for updating conversation
+
+    Returns:
+        Dict with {new_conv_id, response_text, agent_name} if recovery succeeded, None if failed.
+    """
+    conv_id = conversation.mistral_conversation_id
+    if not conv_id:
+        return None
+
+    try:
+        # Step 1: Fetch history to find a safe fork point
+        logger.info(f"[RECOVERY_3000] Fetching history for {conv_id}")
+        history = await client.beta.conversations.get_history_async(conversation_id=conv_id)
+        if not history or not history.entries:
+            logger.warning("[RECOVERY_3000] No entries in history — cannot fork")
+            return None
+
+        entries = history.entries
+
+        # Step 2: Find the second-to-last user message (safe fork point)
+        user_entries = [e for e in entries if getattr(e, "type", "") == "message.input"]
+        if len(user_entries) >= 2:
+            fork_entry_id = user_entries[-2].id
+        elif user_entries:
+            fork_entry_id = user_entries[0].id
+        else:
+            logger.warning("[RECOVERY_3000] No user message entries found — cannot fork")
+            return None
+
+        logger.info(f"[RECOVERY_3000] Forking from entry {fork_entry_id} (conversation {conv_id})")
+
+        # Step 3: restart_stream forks the conversation and processes the message.
+        # Consume the ENTIRE stream to get new conv_id + response text.
+        recovery_stream = client.beta.conversations.restart_stream(
+            conversation_id=conv_id,
+            from_entry_id=fork_entry_id,
+            inputs=[{"role": "user", "content": user_message_content}],
+        )
+
+        new_conv_id = None
+        text_parts: list[str] = []
+        agent_name = "router"
+
+        with recovery_stream as s:
+            for event in s:
+                if hasattr(event.data, "conversation_id") and event.data.conversation_id:
+                    new_conv_id = event.data.conversation_id
+
+                if isinstance(event.data, ResponseErrorEvent):
+                    error_msg = getattr(event.data, "message", "Unknown")
+                    error_code = getattr(event.data, "code", None)
+                    logger.error(f"[RECOVERY_3000] Error in recovery stream: {error_msg} (code={error_code})")
+                    return None
+
+                if isinstance(event.data, AgentHandoffDoneEvent):
+                    next_agent = getattr(event.data, "next_agent_name", agent_name)
+                    agent_name = next_agent.lower().replace(" ", "_").replace("legal_", "")
+
+                if isinstance(event.data, MessageOutputEvent):
+                    content = getattr(event.data, "content", "")
+                    if isinstance(content, str):
+                        text_parts.append(content)
+                    elif isinstance(content, list):
+                        for chunk in content:
+                            if hasattr(chunk, "text"):
+                                text_parts.append(chunk.text)
+
+        if not new_conv_id:
+            logger.warning("[RECOVERY_3000] restart_stream did not return a new conversation_id")
+            return None
+
+        response_text = "".join(text_parts)
+
+        # Step 4: Update our DB with the new conversation_id
+        logger.info(
+            f"[RECOVERY_3000] SUCCESS — forked to {new_conv_id} (was {conv_id}), "
+            f"response: {len(response_text)} chars, agent: {agent_name}"
+        )
+        conversation.mistral_conversation_id = new_conv_id
+        await db.commit()
+
+        return {
+            "new_conv_id": new_conv_id,
+            "response_text": response_text,
+            "agent_name": agent_name,
+        }
+
+    except Exception as e:
+        logger.error(f"[RECOVERY_3000] Failed: {type(e).__name__}: {e}")
+        return None
+
+
 async def process_with_agents(
     websocket: WebSocket,
     conversation: Conversation,
@@ -1272,7 +1392,29 @@ async def process_with_agents(
                                 {"type": "message_chunk", "content": extra, "agent": current_agent_name}
                             )
                     else:
+                        # Recovery failed — send error to user and clean up ThinkingSteps
                         logger.warning("[RECOVERY] Keeping mistral_conversation_id intact for retry")
+                        await websocket.send_json({"type": "error", "message": "Response timed out. Please try again."})
+                        # Finalize ThinkingSteps so spinner stops
+                        if thinking_steps:
+                            preview = (
+                                stream_state["text_accumulator"][-120:]
+                                if stream_state.get("text_accumulator")
+                                else None
+                            )
+                            await complete_agent_step(db, thinking_steps, current_agent_name, preview_text=preview)
+                            thinking_steps.is_live = False
+                            thinking_steps.completed_at = datetime.now(timezone.utc)
+                            db.add(thinking_steps)
+                            await db.commit()
+                        await websocket.send_json(
+                            {
+                                "type": "thinking_complete",
+                                "data": {"error": True},
+                                "timestamp": datetime.now(timezone.utc).isoformat(),
+                            }
+                        )
+                        return
                     break
 
                 if event is None:
@@ -1321,6 +1463,97 @@ async def process_with_agents(
                         )
                         pre_handoff_calls.extend(pending_function_calls)
                         pending_function_calls = []
+                elif result == "error_3000":
+                    # Poisoned conversation — attempt restart_stream recovery.
+                    # _recover_from_error_3000 forks the conversation via restart_stream,
+                    # consumes the ENTIRE recovery stream, and returns the response text.
+                    # We then deliver it to the client as if it were a normal response.
+                    logger.warning(f"⚠️ [ERROR_3000] Attempting restart_stream recovery after {event_count} events")
+                    recovery = await _recover_from_error_3000(
+                        client,
+                        conversation,
+                        user_message_content,
+                        db,
+                    )
+                    if recovery:
+                        # Recovery succeeded — deliver the recovered response to client
+                        recovered_text = sanitize_agent_text(recovery["response_text"])
+                        recovered_agent = recovery["agent_name"]
+                        logger.info(
+                            f"[ERROR_3000] Recovery succeeded: {len(recovered_text)} chars, "
+                            f"agent={recovered_agent}, new_conv={recovery['new_conv_id']}"
+                        )
+
+                        # Finalize ThinkingSteps before message_complete
+                        if thinking_steps:
+                            await complete_agent_step(
+                                db,
+                                thinking_steps,
+                                recovered_agent,
+                                preview_text=recovered_text[-120:] if recovered_text else None,
+                            )
+                            thinking_steps.is_live = False
+                            thinking_steps.completed_at = datetime.now(timezone.utc)
+                            db.add(thinking_steps)
+                            await db.commit()
+                            await websocket.send_json(
+                                {
+                                    "type": "thinking_complete",
+                                    "data": {"error": False},
+                                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                                }
+                            )
+
+                        # Save as AI message and send message_complete
+                        if recovered_text:
+                            ai_message = Message(
+                                conversation_id=conversation.id,
+                                role=MessageRole.ASSISTANT,
+                                content=recovered_text,
+                                agent_name=recovered_agent,
+                            )
+                            db.add(ai_message)
+                            await db.commit()
+                            await db.refresh(ai_message)
+                            await websocket.send_json(
+                                {
+                                    "type": "message_complete",
+                                    "message_id": str(ai_message.id),
+                                    "content": recovered_text,
+                                    "agent": recovered_agent,
+                                    "timestamp": ai_message.created_at.isoformat(),
+                                }
+                            )
+
+                        # Update conversation metadata and return
+                        conversation.current_agent = recovered_agent
+                        conversation.updated_at = datetime.now(timezone.utc)
+                        await db.commit()
+                        return
+
+                    # Recovery failed — send error to client
+                    logger.error("[ERROR_3000] Recovery failed — sending error to client")
+                    await websocket.send_json(
+                        {
+                            "type": "error",
+                            "error": "Something went wrong. Please try again.",
+                            "code": "conversation_error",
+                            "timestamp": datetime.now(timezone.utc).isoformat(),
+                        }
+                    )
+                    if thinking_steps:
+                        thinking_steps.is_live = False
+                        thinking_steps.completed_at = datetime.now(timezone.utc)
+                        db.add(thinking_steps)
+                        await db.commit()
+                    await websocket.send_json(
+                        {
+                            "type": "thinking_complete",
+                            "data": {"error": True},
+                            "timestamp": datetime.now(timezone.utc).isoformat(),
+                        }
+                    )
+                    return
                 elif result == "error":
                     logger.error(f"❌ [STREAM] Error after {event_count} events")
                     # Finalize ThinkingSteps so it doesn't stay is_live=True forever
