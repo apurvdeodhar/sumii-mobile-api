@@ -148,3 +148,4 @@ docs/*
 tests/docs/[A-Z][A-Z][A-Z]*.md
 # Explicitly allow status_dec20.md (lowercase, should be committed)
 !tests/docs/status_dec20.md
+GEMINI.md

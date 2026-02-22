@@ -226,7 +226,7 @@ https://sumii.de • info@sumii.de
             token: Password reset token
             language: User's preferred language ("de" or "en")
         """
-        reset_url = f"{settings.FRONTEND_URL}/reset-password?token={token}"
+        reset_url = f"sumii://reset-password?token={token}"
         logger.info(f"[DEV] Password reset token for {user_email}: {token}")
         logger.info(f"[DEV] Password reset URL: {reset_url}")
 

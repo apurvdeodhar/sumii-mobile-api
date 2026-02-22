@@ -53,6 +53,9 @@ class Settings(BaseSettings):
     # Mistral Client Timeout (httpx read timeout for AI streaming)
     MISTRAL_READ_TIMEOUT: float = 120.0  # Seconds — critical for Magistral thinking phases
 
+    # OTP Password Reset
+    OTP_EXPIRE_MINUTES: int = 10  # How long a password reset OTP code is valid
+
     # Environment (controls docs visibility, hot-reload, etc.)
     ENVIRONMENT: str = "development"  # "development" | "dev" | "staging" | "prod"
 
