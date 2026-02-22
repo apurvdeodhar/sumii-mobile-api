@@ -4,13 +4,18 @@ Registration, login, email verification, password reset, and OAuth
 """
 
 import logging
+from datetime import datetime, timedelta, timezone
 from typing import Annotated
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, EmailStr, Field
+from sqlalchemy import delete, select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
+from app.database import get_db
+from app.models.password_reset_code import PasswordResetCode
 from app.models.user import User
 from app.schemas.user import UserCreate, UserRead
 from app.users import (
@@ -43,10 +48,7 @@ router.include_router(
     fastapi_users.get_verify_router(UserRead),
 )
 
-# Password reset router
-router.include_router(
-    fastapi_users.get_reset_password_router(),
-)
+# Password reset router — replaced by custom OTP endpoints below (/forgot-password, /reset-password)
 
 # Google OAuth router (if configured)
 if google_oauth_client:
@@ -200,3 +202,94 @@ async def google_mobile_auth(
         token_type="bearer",
         expires_in=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
     )
+
+
+# --- OTP Password Reset Endpoints ---
+
+
+class ForgotPasswordOTPRequest(BaseModel):
+    email: EmailStr
+
+
+class ResetPasswordOTPRequest(BaseModel):
+    email: EmailStr
+    code: str = Field(min_length=6, max_length=6, pattern=r"^\d{6}$")
+    password: str = Field(min_length=8)
+
+
+@router.post("/forgot-password", status_code=202)
+async def forgot_password_otp(
+    body: ForgotPasswordOTPRequest,
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    """
+    Request a 6-digit OTP code for password reset.
+
+    Always returns 202 — no email enumeration (same response whether email exists or not).
+    OTP code is valid for OTP_EXPIRE_MINUTES (default 10). Previous unused codes are invalidated.
+    """
+    result = await db.execute(select(User).where(User.email == body.email.lower()))
+    user = result.unique().scalar_one_or_none()
+    if not user:
+        return  # 202 — don't reveal whether email exists
+
+    # Invalidate all previous unused codes for this user
+    await db.execute(
+        delete(PasswordResetCode).where(
+            PasswordResetCode.user_id == user.id,
+            PasswordResetCode.used == False,  # noqa: E712
+        )
+    )
+
+    code = PasswordResetCode.generate_code()
+    reset_code = PasswordResetCode(
+        user_id=user.id,
+        code=code,
+        expires_at=datetime.now(timezone.utc) + timedelta(minutes=settings.OTP_EXPIRE_MINUTES),
+    )
+    db.add(reset_code)
+    await db.commit()
+
+    try:
+        from app.services.email_service import EmailService
+
+        email_service = EmailService()
+        await email_service.send_password_reset_otp_email(user.email, code, language=user.language or "de")
+    except Exception as e:
+        logger.warning(f"Failed to send OTP email to {user.email}: {e}")
+
+
+@router.post("/reset-password")
+async def reset_password_otp(
+    body: ResetPasswordOTPRequest,
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    """
+    Reset password using a 6-digit OTP code.
+
+    Returns 400 for invalid/expired/already-used codes.
+    """
+    from fastapi_users.password import PasswordHelper
+
+    result = await db.execute(select(User).where(User.email == body.email.lower()))
+    user = result.unique().scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=400, detail="Invalid code")
+
+    now = datetime.now(timezone.utc)
+    result = await db.execute(
+        select(PasswordResetCode).where(
+            PasswordResetCode.user_id == user.id,
+            PasswordResetCode.code == body.code,
+            PasswordResetCode.used == False,  # noqa: E712
+            PasswordResetCode.expires_at > now,
+        )
+    )
+    reset_code = result.scalar_one_or_none()
+    if not reset_code:
+        raise HTTPException(status_code=400, detail="Invalid or expired code")
+
+    password_helper = PasswordHelper()
+    user.hashed_password = password_helper.hash(body.password)
+    reset_code.used = True
+    await db.commit()
