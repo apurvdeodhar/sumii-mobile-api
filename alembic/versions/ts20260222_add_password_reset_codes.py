@@ -13,7 +13,7 @@ from sqlalchemy.dialects.postgresql import UUID
 
 from alembic import op
 
-revision = "ts20260222_add_password_reset_codes"
+revision = "ts20260222_otp_reset"
 down_revision = "ts20260220_oauth"
 branch_labels = None
 depends_on = None
@@ -31,7 +31,7 @@ def upgrade() -> None:
         sa.Column(
             "user_id",
             UUID(as_uuid=True),
-            sa.ForeignKey("user.id", ondelete="CASCADE"),
+            sa.ForeignKey("users.id", ondelete="CASCADE"),
             nullable=False,
         ),
         sa.Column("code", sa.String(6), nullable=False),
