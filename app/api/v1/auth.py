@@ -217,6 +217,11 @@ class ResetPasswordOTPRequest(BaseModel):
     password: str = Field(min_length=8)
 
 
+class VerifyResetCodeRequest(BaseModel):
+    email: EmailStr
+    code: str = Field(min_length=6, max_length=6, pattern=r"^\d{6}$")
+
+
 @router.post("/forgot-password", status_code=202)
 async def forgot_password_otp(
     body: ForgotPasswordOTPRequest,
@@ -257,6 +262,37 @@ async def forgot_password_otp(
         await email_service.send_password_reset_otp_email(user.email, code, language=user.language or "de")
     except Exception as e:
         logger.warning(f"Failed to send OTP email to {user.email}: {e}")
+
+
+@router.post("/verify-reset-code", status_code=200)
+async def verify_reset_code(
+    body: VerifyResetCodeRequest,
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    """
+    Verify that a password reset OTP code is valid without consuming it.
+
+    Returns 200 if code is valid, 400 if invalid/expired.
+    The code is NOT marked as used — that happens in /reset-password.
+    """
+    result = await db.execute(select(User).where(User.email == body.email.lower()))
+    user = result.unique().scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=400, detail="Invalid code")
+
+    now = datetime.now(timezone.utc)
+    result = await db.execute(
+        select(PasswordResetCode).where(
+            PasswordResetCode.user_id == user.id,
+            PasswordResetCode.code == body.code,
+            PasswordResetCode.used == False,  # noqa: E712
+            PasswordResetCode.expires_at > now,
+        )
+    )
+    reset_code = result.scalar_one_or_none()
+    if not reset_code:
+        raise HTTPException(status_code=400, detail="Invalid or expired code")
+    # Code is valid — NOT marking as used (that happens in /reset-password)
 
 
 @router.post("/reset-password")
