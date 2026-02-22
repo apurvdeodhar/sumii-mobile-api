@@ -57,7 +57,7 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
     verification_token_secret = settings.SECRET_KEY
 
     async def on_after_register(self, user: User, request: Request | None = None):
-        """Called after user registration - sends welcome email + triggers verification"""
+        """Called after user registration - sends welcome email + generates verification OTP"""
         from app.services.email_service import EmailService
 
         try:
@@ -67,16 +67,45 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
         except Exception as e:
             logger.warning(f"Failed to send welcome email to {user.email}: {e}")
 
-        # OAuth users are already verified by their provider — skip verification email
+        # OAuth users are already verified by their provider — skip verification OTP
         if user.oauth_accounts:
             user.is_verified = True
             await self.user_db.update(user, {"is_verified": True})
             logger.info(f"OAuth user {user.email} auto-verified")
         else:
+            # Generate and send email verification OTP (replaces JWT link email)
             try:
-                await self.request_verify(user, request)
+                from datetime import timedelta
+
+                from sqlalchemy import delete as sa_delete
+
+                from app.config import settings
+                from app.models.email_verification_code import EmailVerificationCode
+
+                db = self.user_db.session
+                # Invalidate any previous unused codes
+                await db.execute(
+                    sa_delete(EmailVerificationCode).where(
+                        EmailVerificationCode.user_id == user.id,
+                        EmailVerificationCode.used.is_(False),
+                    )
+                )
+                from datetime import datetime, timezone
+
+                code_str = EmailVerificationCode.generate_code()
+                verification = EmailVerificationCode(
+                    user_id=user.id,
+                    code=code_str,
+                    expires_at=datetime.now(timezone.utc) + timedelta(minutes=settings.OTP_EXPIRE_MINUTES),
+                )
+                db.add(verification)
+                await db.commit()
+
+                email_service = EmailService()
+                lang = user.language or "de"
+                await email_service.send_email_verification_otp_email(user.email, code_str, language=lang)
             except Exception as e:
-                logger.warning(f"Failed to send verification email to {user.email}: {e}")
+                logger.warning(f"Failed to send verification OTP to {user.email}: {e}")
 
     async def on_after_login(
         self,

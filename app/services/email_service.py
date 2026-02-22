@@ -404,6 +404,130 @@ https://sumii.de • info@sumii.de
 
         await self._send_email(user_email, subject, body_text, body_html)
 
+    async def send_email_verification_otp_email(self, user_email: str, otp_code: str, language: str = "de") -> None:
+        """Send 6-digit OTP code for email verification via AWS SES.
+
+        The code is displayed prominently (large monospace font) as the main
+        content — no CTA button, no link. User enters the code in the app.
+        """
+        logger.info(f"[DEV] Email verification OTP for {user_email}: {otp_code}")
+
+        if not self.ses_client or not self.from_email:
+            logger.warning(f"Email service disabled - verification OTP email not sent to {user_email}")
+            return
+
+        is_german = language == "de"
+        tagline = "IHR INTELLIGENTER RECHTSASSISTENT" if is_german else "YOUR INTELLIGENT LEGAL ASSISTANT"
+        footer_greeting = "Mit freundlichen Grüßen," if is_german else "Best regards,"
+        footer_team = "Ihr sumii Team" if is_german else "Your sumii Team"
+
+        if is_german:
+            subject = "Ihr Bestätigungscode - sumii"
+            title = "E-Mail bestätigen"
+            message = (
+                "Geben Sie diesen Code in der sumii-App ein, um Ihre E-Mail-Adresse zu bestätigen. "
+                "Der Code ist 10 Minuten gültig und kann nur einmal verwendet werden."
+            )
+            code_label = "Ihr Code"
+            ignore = "Falls Sie sich nicht bei sumii registriert haben, können Sie diese E-Mail ignorieren."
+        else:
+            subject = "Your verification code - sumii"
+            title = "Verify your email"
+            message = (
+                "Enter this code in the sumii app to verify your email address. "
+                "The code expires in 10 minutes and can only be used once."
+            )
+            code_label = "Your code"
+            ignore = "If you didn't register with sumii, you can ignore this email."
+
+        body_html = f"""
+        <!DOCTYPE html>
+        <html lang="{language}">
+        <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        </head>
+        <body style="margin: 0; padding: 0; font-family: 'Figtree', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background-color: #f8fafc;">
+            <table role="presentation" style="width: 100%; border-collapse: collapse;">
+                <tr>
+                    <td align="center" style="padding: 40px 20px;">
+                        <table role="presentation" style="width: 100%; max-width: 600px; border-collapse: collapse; background-color: #ffffff; border-radius: 16px; overflow: hidden; box-shadow: 0 4px 14px rgba(52, 73, 94, 0.15);">
+
+                            <!-- Header -->
+                            <tr>
+                                <td style="background: linear-gradient(135deg, #34495e 0%, #7b8d9f 100%); padding: 40px 30px; text-align: center;">
+                                    <img src="https://sumii-assets.s3.eu-central-1.amazonaws.com/logos/logo-dark.png" alt="sumii" style="width: 120px; height: auto; margin-bottom: 12px;" />
+                                    <p style="margin: 0; font-size: 14px; color: rgba(255,255,255,0.8); letter-spacing: 1px;">{tagline}</p>
+                                </td>
+                            </tr>
+
+                            <!-- Main content -->
+                            <tr>
+                                <td style="padding: 40px 30px; text-align: center;">
+                                    <h2 style="margin: 0 0 16px 0; font-size: 24px; font-weight: 600; color: #34495e; text-align: left;">
+                                        {title}
+                                    </h2>
+                                    <p style="margin: 0 0 32px 0; font-size: 16px; line-height: 1.6; color: #4a5568; text-align: left;">
+                                        {message}
+                                    </p>
+
+                                    <!-- OTP Code Block -->
+                                    <table role="presentation" style="width: 100%; margin: 0 0 32px 0;">
+                                        <tr>
+                                            <td align="center">
+                                                <p style="margin: 0 0 8px 0; font-size: 13px; color: #7b8d9f; text-transform: uppercase; letter-spacing: 1px;">{code_label}</p>
+                                                <div style="display: inline-block; background-color: #f0f4f8; border: 2px solid #34495e; border-radius: 12px; padding: 20px 40px;">
+                                                    <span style="font-size: 40px; font-weight: 700; font-family: 'Courier New', Courier, monospace; color: #34495e; letter-spacing: 12px;">{otp_code}</span>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    </table>
+
+                                    <!-- Ignore note -->
+                                    <p style="margin: 0; font-size: 13px; color: #7b8d9f; text-align: left;">
+                                        {ignore}
+                                    </p>
+                                </td>
+                            </tr>
+
+                            <!-- Footer -->
+                            <tr>
+                                <td style="background-color: #f8fafc; padding: 24px 30px; border-top: 1px solid #e2e8f0;">
+                                    <p style="margin: 0 0 8px 0; font-size: 12px; color: #7b8d9f; text-align: center;">
+                                        {footer_greeting}<br>
+                                        <strong style="color: #34495e;">{footer_team}</strong>
+                                    </p>
+                                    <p style="margin: 0; font-size: 11px; color: #a0aec0; text-align: center;">
+                                        sumii • Hamburg, Germany<br>
+                                        <a href="https://sumii.de" style="color: #7b8d9f; text-decoration: none;">sumii.de</a> •
+                                        <a href="mailto:info@sumii.de" style="color: #7b8d9f; text-decoration: none;">info@sumii.de</a>
+                                    </p>
+                                </td>
+                            </tr>
+
+                        </table>
+                    </td>
+                </tr>
+            </table>
+        </body>
+        </html>
+        """
+
+        body_text = f"""{title}
+
+{message}
+
+{code_label}: {otp_code}
+
+{ignore}
+
+---
+sumii • Hamburg, Germany
+https://sumii.de • info@sumii.de
+        """
+
+        await self._send_email(user_email, subject, body_text, body_html)
+
     async def send_lawyer_response_email(self, user_email: str, lawyer_name: str, case_summary_url: str) -> None:
         """Send email to user when lawyer responds to their case
 
