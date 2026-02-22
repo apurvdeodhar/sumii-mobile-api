@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.database import get_db
+from app.models.email_verification_code import EmailVerificationCode
 from app.models.password_reset_code import PasswordResetCode
 from app.models.user import User
 from app.schemas.user import UserCreate, UserRead
@@ -329,3 +330,106 @@ async def reset_password_otp(
     user.hashed_password = password_helper.hash(body.password)
     reset_code.used = True
     await db.commit()
+
+
+# --- Email Verification OTP Endpoints ---
+
+
+class RequestVerificationOTPRequest(BaseModel):
+    email: EmailStr
+
+
+class VerifyEmailOTPRequest(BaseModel):
+    email: EmailStr
+    code: str = Field(min_length=6, max_length=6, pattern=r"^\d{6}$")
+
+
+@router.post("/request-verification-otp", status_code=202)
+async def request_verification_otp(
+    body: RequestVerificationOTPRequest,
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    """
+    Resend email verification OTP.
+
+    Always returns 202 — no email enumeration. No-op for already-verified users.
+    OTP valid for OTP_EXPIRE_MINUTES (default 10). Previous unused codes are invalidated.
+    """
+    result = await db.execute(select(User).where(User.email == body.email.lower()))
+    user = result.unique().scalar_one_or_none()
+    if not user or user.is_verified:
+        return  # 202 — don't reveal whether email exists or is already verified
+
+    # Invalidate all previous unused codes
+    await db.execute(
+        delete(EmailVerificationCode).where(
+            EmailVerificationCode.user_id == user.id,
+            EmailVerificationCode.used.is_(False),
+        )
+    )
+
+    code = EmailVerificationCode.generate_code()
+    verification = EmailVerificationCode(
+        user_id=user.id,
+        code=code,
+        expires_at=datetime.now(timezone.utc) + timedelta(minutes=settings.OTP_EXPIRE_MINUTES),
+    )
+    db.add(verification)
+    await db.commit()
+
+    try:
+        from app.services.email_service import EmailService
+
+        email_service = EmailService()
+        await email_service.send_email_verification_otp_email(user.email, code, language=user.language or "de")
+    except Exception as e:
+        logger.warning(f"Failed to resend verification OTP to {user.email}: {e}")
+
+
+class VerifyEmailTokenResponse(BaseModel):
+    """Token response for auto-login after email verification"""
+
+    access_token: str
+    token_type: str = "bearer"
+
+
+@router.post("/verify-email-otp", response_model=VerifyEmailTokenResponse)
+async def verify_email_otp(
+    body: VerifyEmailOTPRequest,
+    db: AsyncSession = Depends(get_db),
+) -> VerifyEmailTokenResponse:
+    """
+    Verify email address using 6-digit OTP code.
+
+    Marks user as verified and returns a JWT for immediate auto-login.
+    Returns 400 for invalid/expired codes.
+    """
+    result = await db.execute(select(User).where(User.email == body.email.lower()))
+    user = result.unique().scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=400, detail="Invalid code")
+
+    now = datetime.now(timezone.utc)
+    result = await db.execute(
+        select(EmailVerificationCode).where(
+            EmailVerificationCode.user_id == user.id,
+            EmailVerificationCode.code == body.code,
+            EmailVerificationCode.used.is_(False),
+            EmailVerificationCode.expires_at > now,
+        )
+    )
+    verification = result.scalar_one_or_none()
+    if not verification:
+        raise HTTPException(status_code=400, detail="Invalid or expired code")
+
+    # Mark verified + consume code atomically
+    user.is_verified = True
+    verification.used = True
+    await db.commit()
+    await db.refresh(user)
+
+    # Generate JWT using fastapi-users' strategy (includes aud: "fastapi-users:auth")
+    strategy = get_jwt_strategy()
+    token = await strategy.write_token(user)
+
+    return VerifyEmailTokenResponse(access_token=token)
