@@ -137,16 +137,6 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
         except Exception as e:
             logger.warning(f"Failed to send password reset email to {user.email}: {e}")
 
-    async def on_after_request_verify(self, user: User, token: str, request: Request | None = None):
-        """Send email verification link via AWS SES"""
-        from app.services.email_service import EmailService
-
-        try:
-            email_service = EmailService()
-            await email_service.send_verification_email(user.email, token, language=user.language or "de")
-        except Exception as e:
-            logger.warning(f"Failed to send verification email to {user.email}: {e}")
-
 
 async def get_user_manager(
     user_db: SQLAlchemyUserDatabase[User, uuid.UUID] = Depends(get_user_db),

@@ -10,7 +10,7 @@ from typing import Annotated
 import httpx
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, EmailStr, Field
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
@@ -44,10 +44,8 @@ router.include_router(
     fastapi_users.get_register_router(UserRead, UserCreate),
 )
 
-# Email verification router
-router.include_router(
-    fastapi_users.get_verify_router(UserRead),
-)
+# Email verification router — REMOVED: app uses custom OTP endpoints
+# (/request-verification-otp, /verify-email-otp) instead of JWT-link /verify
 
 # Password reset router — replaced by custom OTP endpoints below (/forgot-password, /reset-password)
 
@@ -234,7 +232,7 @@ async def forgot_password_otp(
     Always returns 202 — no email enumeration (same response whether email exists or not).
     OTP code is valid for OTP_EXPIRE_MINUTES (default 10). Previous unused codes are invalidated.
     """
-    result = await db.execute(select(User).where(User.email == body.email.lower()))
+    result = await db.execute(select(User).where(func.lower(User.email) == body.email.lower()))
     user = result.unique().scalar_one_or_none()
     if not user:
         return  # 202 — don't reveal whether email exists
@@ -276,7 +274,7 @@ async def verify_reset_code(
     Returns 200 if code is valid, 400 if invalid/expired.
     The code is NOT marked as used — that happens in /reset-password.
     """
-    result = await db.execute(select(User).where(User.email == body.email.lower()))
+    result = await db.execute(select(User).where(func.lower(User.email) == body.email.lower()))
     user = result.unique().scalar_one_or_none()
     if not user:
         raise HTTPException(status_code=400, detail="Invalid code")
@@ -308,7 +306,7 @@ async def reset_password_otp(
     """
     from fastapi_users.password import PasswordHelper
 
-    result = await db.execute(select(User).where(User.email == body.email.lower()))
+    result = await db.execute(select(User).where(func.lower(User.email) == body.email.lower()))
     user = result.unique().scalar_one_or_none()
     if not user:
         raise HTTPException(status_code=400, detail="Invalid code")
@@ -360,7 +358,7 @@ async def request_verification_otp(
     Returns 202 with already_verified=False if OTP was sent (or email doesn't exist — no enumeration).
     OTP valid for OTP_EXPIRE_MINUTES (default 10). Previous unused codes are invalidated.
     """
-    result = await db.execute(select(User).where(User.email == body.email.lower()))
+    result = await db.execute(select(User).where(func.lower(User.email) == body.email.lower()))
     user = result.unique().scalar_one_or_none()
     if not user:
         logger.info(f"request_verification_otp: no user found for {body.email.lower()}")
@@ -417,7 +415,7 @@ async def verify_email_otp(
     Marks user as verified and returns a JWT for immediate auto-login.
     Returns 400 for invalid/expired codes.
     """
-    result = await db.execute(select(User).where(User.email == body.email.lower()))
+    result = await db.execute(select(User).where(func.lower(User.email) == body.email.lower()))
     user = result.unique().scalar_one_or_none()
     if not user:
         raise HTTPException(status_code=400, detail="Invalid code")

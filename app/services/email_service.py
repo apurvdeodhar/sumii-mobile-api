@@ -592,17 +592,17 @@ https://sumii.de • info@sumii.de
         # Language-specific content
         if is_german:
             subject = "Willkommen bei sumii! 🎉"
-            tagline = "IHR INTELLIGENTER RECHTSASSISTENT"
+            tagline = "DEIN INTELLIGENTER RECHTSASSISTENT"
             welcome_title = "Willkommen bei sumii! 🎉"
-            welcome_text = "Vielen Dank für Ihre Registrierung! sumii ist Ihr intelligenter, einfühlsamer Rechtsassistent. Wir helfen Ihnen, Ihre rechtliche Situation zu verstehen und bereiten alle Informationen für einen Anwalt vor."
+            welcome_text = "Vielen Dank für deine Registrierung!\n\nsumii hilft dir, deine rechtliche Situation zu verstehen und bereitet alle Informationen strukturiert für eine Anwält:in vor."
             features = [
-                "Intelligente Fragen zu Ihrem Fall beantworten",
-                "Übersichtliche Zusammenfassung erstellen",
-                "Passenden Anwalt in Ihrer Nähe finden",
+                "Hilft dir, den Sachverhalt vollständig aufzuarbeiten",
+                "Erstellt eine übersichtliche Zusammenfassung",
+                "Findet eine passende Anwält:in in deiner Nähe",
             ]
             cta_text = "Jetzt starten →"
-            footer_greeting = "Mit freundlichen Grüßen,"
-            footer_team = "Ihr sumii Team"
+            footer_greeting = "Viele Grüße,"
+            footer_team = "Dein sumii Team"
         else:
             subject = "Welcome to sumii! 🎉"
             tagline = "YOUR INTELLIGENT LEGAL ASSISTANT"
