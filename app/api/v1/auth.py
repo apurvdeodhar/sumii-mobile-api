@@ -344,21 +344,28 @@ class VerifyEmailOTPRequest(BaseModel):
     code: str = Field(min_length=6, max_length=6, pattern=r"^\d{6}$")
 
 
-@router.post("/request-verification-otp", status_code=202)
+class RequestVerificationOTPResponse(BaseModel):
+    already_verified: bool = False
+
+
+@router.post("/request-verification-otp", status_code=202, response_model=RequestVerificationOTPResponse)
 async def request_verification_otp(
     body: RequestVerificationOTPRequest,
     db: AsyncSession = Depends(get_db),
-) -> None:
+) -> RequestVerificationOTPResponse:
     """
     Resend email verification OTP.
 
-    Always returns 202 — no email enumeration. No-op for already-verified users.
+    Returns 202 with already_verified=True if the account is already verified (no OTP sent).
+    Returns 202 with already_verified=False if OTP was sent (or email doesn't exist — no enumeration).
     OTP valid for OTP_EXPIRE_MINUTES (default 10). Previous unused codes are invalidated.
     """
     result = await db.execute(select(User).where(User.email == body.email.lower()))
     user = result.unique().scalar_one_or_none()
-    if not user or user.is_verified:
-        return  # 202 — don't reveal whether email exists or is already verified
+    if not user:
+        return RequestVerificationOTPResponse(already_verified=False)  # No enumeration
+    if user.is_verified:
+        return RequestVerificationOTPResponse(already_verified=True)
 
     # Invalidate all previous unused codes
     await db.execute(
@@ -384,6 +391,8 @@ async def request_verification_otp(
         await email_service.send_email_verification_otp_email(user.email, code, language=user.language or "de")
     except Exception as e:
         logger.warning(f"Failed to resend verification OTP to {user.email}: {e}")
+
+    return RequestVerificationOTPResponse(already_verified=False)
 
 
 class VerifyEmailTokenResponse(BaseModel):
