@@ -363,8 +363,10 @@ async def request_verification_otp(
     result = await db.execute(select(User).where(User.email == body.email.lower()))
     user = result.unique().scalar_one_or_none()
     if not user:
+        logger.info(f"request_verification_otp: no user found for {body.email.lower()}")
         return RequestVerificationOTPResponse(already_verified=False)  # No enumeration
     if user.is_verified:
+        logger.info(f"request_verification_otp: {body.email.lower()} is already verified — no OTP sent")
         return RequestVerificationOTPResponse(already_verified=True)
 
     # Invalidate all previous unused codes
@@ -384,11 +386,13 @@ async def request_verification_otp(
     db.add(verification)
     await db.commit()
 
+    logger.info(f"request_verification_otp: OTP generated for {user.email}, attempting to send email")
     try:
         from app.services.email_service import EmailService
 
         email_service = EmailService()
         await email_service.send_email_verification_otp_email(user.email, code, language=user.language or "de")
+        logger.info(f"request_verification_otp: email dispatched successfully to {user.email}")
     except Exception as e:
         logger.warning(f"Failed to resend verification OTP to {user.email}: {e}")
 

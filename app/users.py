@@ -101,9 +101,11 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
                 db.add(verification)
                 await db.commit()
 
+                logger.info(f"on_after_register: verification OTP generated for {user.email}, sending email")
                 email_service = EmailService()
                 lang = user.language or "de"
                 await email_service.send_email_verification_otp_email(user.email, code_str, language=lang)
+                logger.info(f"on_after_register: verification email dispatched to {user.email}")
             except Exception as e:
                 logger.warning(f"Failed to send verification OTP to {user.email}: {e}")
 

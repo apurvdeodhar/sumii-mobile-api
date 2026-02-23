@@ -286,7 +286,10 @@ https://sumii.de • info@sumii.de
         The code is displayed prominently (large monospace font) as the main
         content — no CTA button, no link. User enters the code in the app.
         """
-        logger.info(f"[DEV] Password reset OTP for {user_email}: {otp_code}")
+        if settings.ENVIRONMENT != "prod":
+            logger.info(f"[DEV] Password reset OTP for {user_email}: {otp_code}")
+        else:
+            logger.info(f"Sending password reset OTP to {user_email}")
 
         if not self.ses_client or not self.from_email:
             logger.warning(f"Email service disabled - OTP email not sent to {user_email}")
@@ -410,7 +413,10 @@ https://sumii.de • info@sumii.de
         The code is displayed prominently (large monospace font) as the main
         content — no CTA button, no link. User enters the code in the app.
         """
-        logger.info(f"[DEV] Email verification OTP for {user_email}: {otp_code}")
+        if settings.ENVIRONMENT != "prod":
+            logger.info(f"[DEV] Email verification OTP for {user_email}: {otp_code}")
+        else:
+            logger.info(f"Sending email verification OTP to {user_email}")
 
         if not self.ses_client or not self.from_email:
             logger.warning(f"Email service disabled - verification OTP email not sent to {user_email}")
