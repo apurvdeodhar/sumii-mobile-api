@@ -17,6 +17,10 @@ engine = create_async_engine(
     DATABASE_URL,
     echo=False,  # Disabled - use centralized logging config instead
     future=True,
+    pool_size=10,
+    max_overflow=5,
+    pool_pre_ping=True,
+    pool_recycle=3600,
 )
 
 # Session factory

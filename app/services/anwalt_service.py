@@ -27,7 +27,7 @@ class AnwaltService:
         legal_area: str | None = None,
         latitude: float | None = None,
         longitude: float | None = None,
-        radius_km: float = 10.0,
+        radius_km: float = 50.0,
     ) -> list[dict[str, Any]]:
         """Search for lawyers in sumii-anwalt directory
 
@@ -81,10 +81,7 @@ class AnwaltService:
             raise Exception(f"Failed to search lawyers: {str(e)}") from e
 
     async def get_lawyer_profile(self, lawyer_id: int) -> dict[str, Any] | None:
-        """Get lawyer profile by ID
-
-        Note: This endpoint may not exist in sumii-anwalt yet.
-        For now, we can search and filter by ID client-side.
+        """Get lawyer profile by ID via dedicated endpoint
 
         Args:
             lawyer_id: Lawyer ID from sumii-anwalt
@@ -93,19 +90,19 @@ class AnwaltService:
             Lawyer profile dictionary or None if not found
 
         Raises:
-            httpx.HTTPError: If API request fails
+            Exception: If API request fails (non-404)
         """
-        # Search all lawyers and filter by ID
-        # This is inefficient but works until sumii-anwalt adds GET /anwalt/profiles/{id}
+        url = f"{self.base_url}/anwalt/profiles/{lawyer_id}"
         try:
-            lawyers = await self.search_lawyers(language="de")  # Default language
-            for lawyer in lawyers:
-                if lawyer.get("id") == lawyer_id:
-                    return lawyer
-            return None
-        except Exception as e:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                response = await client.get(url)
+                if response.status_code == 404:
+                    return None
+                response.raise_for_status()
+                return response.json()
+        except httpx.HTTPError as e:
             logger.error(f"Failed to get lawyer profile {lawyer_id}: {e}")
-            raise
+            raise Exception(f"Failed to get lawyer profile: {str(e)}") from e
 
     async def handoff_case(
         self,
@@ -116,6 +113,8 @@ class AnwaltService:
         legal_area: str,
         urgency: str,
         user_location: dict[str, Any] | None = None,
+        document_urls: list[dict[str, str]] | None = None,
+        conversation_id: str | None = None,
     ) -> dict[str, Any]:
         """Hand off case to sumii-anwalt backend
 
@@ -130,6 +129,7 @@ class AnwaltService:
             legal_area: Legal area (e.g., "Mietrecht", "Arbeitsrecht")
             urgency: Urgency level (e.g., "immediate", "weeks", "months")
             user_location: Optional user location dict with keys: city, lat, lng
+            document_urls: Optional list of document dicts with keys: filename, url, file_type
 
         Returns:
             Dictionary with case_id from sumii-anwalt system
@@ -150,6 +150,12 @@ class AnwaltService:
 
         if user_location:
             payload["user_location"] = user_location
+
+        if document_urls:
+            payload["document_urls"] = document_urls
+
+        if conversation_id:
+            payload["conversation_id"] = conversation_id
 
         # Make request to sumii-anwalt backend
         url = f"{self.base_url}/api/cases/handoff"

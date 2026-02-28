@@ -364,8 +364,8 @@ aws ses verify-email-identity --email-address your-dev@email.com
 | <a name="input_app_port"></a> [app\_port](#input\_app\_port) | Application port | `number` | `8000` | no |
 | <a name="input_aws_region"></a> [aws\_region](#input\_aws\_region) | AWS region for all resources | `string` | `"eu-central-1"` | no |
 | <a name="input_domain_name"></a> [domain\_name](#input\_domain\_name) | Primary domain for SES and SSL | `string` | `"sumii.de"` | no |
-| <a name="input_ecs_task_cpu"></a> [ecs\_task\_cpu](#input\_ecs\_task\_cpu) | CPU units for ECS task (256 = 0.25 vCPU) | `string` | `"256"` | no |
-| <a name="input_ecs_task_memory"></a> [ecs\_task\_memory](#input\_ecs\_task\_memory) | Memory for ECS task in MB | `string` | `"512"` | no |
+| <a name="input_ecs_task_cpu"></a> [ecs\_task\_cpu](#input\_ecs\_task\_cpu) | CPU units for ECS task (512 = 0.5 vCPU) | `string` | `"512"` | no |
+| <a name="input_ecs_task_memory"></a> [ecs\_task\_memory](#input\_ecs\_task\_memory) | Memory for ECS task in MB | `string` | `"1024"` | no |
 | <a name="input_enable_ecs"></a> [enable\_ecs](#input\_enable\_ecs) | Enable ECS-related resources (IAM roles). Disable for local dev. | `bool` | `false` | no |
 | <a name="input_enable_notifications"></a> [enable\_notifications](#input\_enable\_notifications) | Enable SNS/SQS notification infrastructure. Disable for local dev. | `bool` | `false` | no |
 | <a name="input_environment"></a> [environment](#input\_environment) | Environment (local, dev, staging, prod) | `string` | `"dev"` | no |
@@ -377,7 +377,7 @@ aws ses verify-email-identity --email-address your-dev@email.com
 | <a name="input_mistral_org_id"></a> [mistral\_org\_id](#input\_mistral\_org\_id) | Mistral AI Organization ID (sensitive) | `string` | `""` | no |
 | <a name="input_project_name"></a> [project\_name](#input\_project\_name) | Project name for resource naming | `string` | `"sumii"` | no |
 | <a name="input_tags"></a> [tags](#input\_tags) | Common tags for all resources | `map(string)` | <pre>{<br/>  "Environment": "dev",<br/>  "ManagedBy": "Terraform",<br/>  "Project": "Sumii"<br/>}</pre> | no |
-| <a name="input_task_count"></a> [task\_count](#input\_task\_count) | Number of ECS tasks to run | `number` | `1` | no |
+| <a name="input_task_count"></a> [task\_count](#input\_task\_count) | Number of ECS tasks to run | `number` | `2` | no |
 
 ## Outputs
 

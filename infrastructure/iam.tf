@@ -185,7 +185,7 @@ resource "aws_iam_role_policy" "polly_tts_policy" {
         "polly:SynthesizeSpeech",
         "polly:DescribeVoices"
       ]
-      Resource = "arn:aws:polly:${var.aws_region}:${local.account_id}:*"
+      Resource = "*"
     }]
   })
 }

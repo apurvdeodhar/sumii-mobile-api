@@ -14,6 +14,7 @@ from app.api.v1 import (
     conversations,
     documents,
     events,
+    notifications,
     status,
     summaries,
     sync,
@@ -96,6 +97,7 @@ app.include_router(summaries.router, prefix="/api/v1", tags=["summaries"])  # Su
 app.include_router(status.router, tags=["status"])  # Status endpoints (health, agents, progress)
 app.include_router(anwalt.router)  # Anwalt endpoints (lawyer search and connection)
 app.include_router(events.router)  # SSE events endpoint (notifications)
+app.include_router(notifications.router)  # Notification CRUD endpoints
 app.include_router(users.router)  # Users endpoints (push token, profile)
 app.include_router(webhooks.router)  # Webhook endpoints (receive events from sumii-anwalt)
 app.include_router(websocket.router, tags=["websocket"])

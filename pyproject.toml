@@ -32,6 +32,9 @@ dependencies = [
     "httpx>=0.27.0",  # For HTTP client (anwalt service integration)
     "fastapi-users[sqlalchemy]>=15.0.0",  # User management and authentication
     "httpx-oauth>=0.15.0",  # OAuth providers (Google)
+    "pypdf>=4.0.0",  # PDF merging for document appendix
+    "Pillow>=10.0.0",  # Image-to-PDF conversion for document appendix
+    "geopy>=2.4.0",  # Geocoding (PLZ → coordinates) via OpenStreetMap Nominatim
 ]
 
 [project.optional-dependencies]

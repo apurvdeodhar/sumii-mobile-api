@@ -60,6 +60,7 @@ class UserProfileResponse(BaseModel):
 class UserProfileUpdate(BaseModel):
     """Request body for profile update"""
 
+    nickname: str | None = None
     first_name: str | None = None
     last_name: str | None = None
     phone: str | None = None

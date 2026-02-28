@@ -86,5 +86,10 @@ class User(SQLAlchemyBaseUserTableUUID, Base):
     notifications = relationship("Notification", cascade="all, delete-orphan")
     lawyer_connections = relationship("LawyerConnection", cascade="all, delete-orphan")
 
+    @property
+    def full_name(self) -> str:
+        """Concatenated first + last name, stripped. Empty string if neither set."""
+        return f"{self.first_name or ''} {self.last_name or ''}".strip()
+
     def __repr__(self) -> str:
         return f"<User(id={self.id}, email={self.email})>"
