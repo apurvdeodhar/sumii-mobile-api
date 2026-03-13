@@ -8,9 +8,22 @@ See also: https://www.python-httpx.org/advanced/timeouts/
 """
 
 import httpx
-from mistralai import Mistral
+from mistralai import Mistral, RetryConfig
+from mistralai.utils.retries import BackoffStrategy
 
 from app.config import settings
+
+# Retry configuration for transient errors (429, 5xx, connection errors)
+MISTRAL_RETRY_CONFIG = RetryConfig(
+    strategy="backoff",
+    backoff=BackoffStrategy(
+        initial_interval=1000,  # 1s initial wait
+        max_interval=30000,  # 30s max wait
+        exponent=1.5,  # moderate exponential growth
+        max_elapsed_time=120000,  # 2min total retry window
+    ),
+    retry_connection_errors=True,
+)
 
 # Optimized timeout configuration for AI streaming
 # Reference: https://www.python-httpx.org/advanced/timeouts/
@@ -34,6 +47,7 @@ def get_mistral_client() -> Mistral:
     return Mistral(
         api_key=settings.MISTRAL_API_KEY,
         client=httpx.Client(timeout=MISTRAL_TIMEOUT),
+        retry_config=MISTRAL_RETRY_CONFIG,
     )
 
 
@@ -43,9 +57,10 @@ def get_mistral_async_client() -> Mistral:
     Use this for async streaming operations (websocket, etc).
 
     Returns:
-        Mistral: Async client configured with 120s read timeout.
+        Mistral: Async client configured with 120s read timeout and retry.
     """
     return Mistral(
         api_key=settings.MISTRAL_API_KEY,
         async_client=httpx.AsyncClient(timeout=MISTRAL_TIMEOUT),
+        retry_config=MISTRAL_RETRY_CONFIG,
     )
