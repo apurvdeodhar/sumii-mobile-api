@@ -20,7 +20,7 @@ class SummaryReadyEvent(SSEEventBase):
 
     type: str = "summary_ready"
     title: str = "Zusammenfassung bereit"
-    message: str = "Ihre Rechtsübersicht ist verfügbar"
+    message: str = "Deine Rechtsübersicht ist verfügbar"
     data: dict[str, Any]  # {"conversation_id": "uuid", "summary_id": "uuid"}
 
 
@@ -29,7 +29,7 @@ class LawyerResponseEvent(SSEEventBase):
 
     type: str = "lawyer_response"
     title: str = "Anwalt hat geantwortet"
-    message: str = "Ihr Anwalt hat auf Ihren Fall geantwortet"
+    message: str = "Dein Anwalt hat auf deinen Fall geantwortet"
     data: dict[str, Any]  # {"conversation_id": "uuid", "lawyer_name": "Dr. Schmidt"}
 
 
@@ -38,7 +38,7 @@ class LawyerAssignedEvent(SSEEventBase):
 
     type: str = "lawyer_assigned"
     title: str = "Anwalt zugewiesen"
-    message: str = "Ein Anwalt wurde Ihrem Fall zugewiesen"
+    message: str = "Ein Anwalt wurde deinem Fall zugewiesen"
     data: dict[str, Any]  # {"conversation_id": "uuid", "lawyer_id": 123, "lawyer_name": "Dr. Schmidt"}
 
 
@@ -47,7 +47,7 @@ class CaseUpdatedEvent(SSEEventBase):
 
     type: str = "case_updated"
     title: str = "Fall aktualisiert"
-    message: str = "Ihr Fall wurde aktualisiert"
+    message: str = "Dein Fall wurde aktualisiert"
     data: dict[str, Any]  # {"conversation_id": "uuid", "status": "completed"}
 
 

@@ -1,9 +1,10 @@
 """Mistral AI Agents for Legal Intake Workflow
 
 This package provides specialized AI agents for Sumii's legal intake process:
-- Router Agent: Orchestrates workflow
-- Intake Agent: Collects facts (5W framework)
-- Fact Completion Agent: Gathers additional details
+- Router Agent: Classifies domain + intent, routes to correct agent
+- Domain Agents: Mietrecht, Vertragsrecht, Arbeitsrecht (Phase 1)
+- Intake Agent: Generic fallback for low-confidence classification
+- Fact Completion Agent: Generic fallback detailed fact-gathering
 - Reasoning Logic Agent: Contradiction detection
 - Wrap-Up Agent: Confirms facts before summary generation
 - Summary Agent: Generates professional documents for lawyers
@@ -14,10 +15,11 @@ Benefits: Fast implementation, built-in orchestration, production-ready
 IMPORTANT: Sumii does NOT provide legal analysis or advice.
 Legal analysis is done by lawyers. Sumii only collects facts.
 
-Agent Flow:
-User → Router → Intake → Fact Completion → Reasoning Logic → Wrap-Up → Summary
-                                                 ↓
-                               (contradiction) → Fact Completion
+Agent Flow (domain-aware):
+User → Router ──classify──→ Domain Agent ──→ Reasoning Logic → Wrap-Up → Summary
+                  │                                    ↓
+                  │ (low confidence)      (contradiction) → Domain Agent / Fact Completion
+                  └──→ Intake → Fact Completion ──→ Reasoning Logic → ...
 """
 
 import logging
@@ -25,6 +27,7 @@ import re
 
 from mistralai import Mistral
 
+from app.services.agents.domains.domain_factory import create_all_domain_agents
 from app.services.agents.fact_completion import create_fact_completion_agent
 from app.services.agents.intake import create_intake_agent
 from app.services.agents.reasoning_logic import create_reasoning_logic_agent
@@ -35,6 +38,9 @@ from app.services.agents.wrapup import create_wrapup_agent
 # Regex for the invisible sync marker appended to instructions during version sync.
 # This marker forces a version bump on lagging agents without changing behavior.
 _SYNC_MARKER_RE = re.compile(r"\n<!-- v-sync:\d+ -->")
+
+# Phase 1 domain agents — keys match YAML config filenames
+PHASE_1_DOMAINS = ["vertragsrecht", "mietrecht", "arbeitsrecht"]
 
 
 def _configure_handoffs(
@@ -121,16 +127,22 @@ def _sync_agent_versions(
     logger.warning(f"[AGENTS] Version drift detected: {versions}. Syncing to v{max_version}...")
 
     for name, data in agent_data.items():
-        if data["version"] < max_version:
-            # Strip any existing sync marker, then append the new one
-            clean_instructions = _SYNC_MARKER_RE.sub("", data["instructions"])
-            synced_instructions = clean_instructions + f"\n<!-- v-sync:{max_version} -->"
-            try:
-                client.beta.agents.update(agent_id=data["id"], instructions=synced_instructions)
-                logger.info(f"  [SYNC] {name}: v{data['version']} -> v{max_version}")
-            except Exception as e:
-                logger.error(f"  [SYNC] Failed to sync {name}: {e}")
-                return False
+        gap = max_version - data["version"]
+        if gap <= 0:
+            continue
+        # Each update() increments version by 1, so we need `gap` updates
+        clean_instructions = _SYNC_MARKER_RE.sub("", data["instructions"])
+        try:
+            for bump in range(gap):
+                marker = f"\n<!-- v-sync:{data['version'] + bump + 1} -->"
+                client.beta.agents.update(
+                    agent_id=data["id"],
+                    instructions=clean_instructions + marker,
+                )
+            logger.info(f"  [SYNC] {name}: v{data['version']} -> v{max_version} ({gap} bumps)")
+        except Exception as e:
+            logger.error(f"  [SYNC] Failed to sync {name}: {e}")
+            return False
 
     # 3. Re-verify
     final_versions = {}
@@ -156,7 +168,7 @@ def _create_and_configure_agents(
     client: Mistral,
     logger: logging.Logger,
 ) -> dict[str, str]:
-    """Create all 6 agents and configure the handoff chain.
+    """Create all agents and configure the handoff chain.
 
     This is the inner workhorse called by ``initialize_all_agents()``.
     It handles agent creation (via upsert) and handoff wiring but does NOT
@@ -166,7 +178,7 @@ def _create_and_configure_agents(
     Returns:
         Mapping of agent role name to Mistral agent ID.
     """
-    # Create all agents (upsert: create if new, update if config hash changed)
+    # --- Core agents (unchanged) ---
     logger.debug("[AGENTS] Creating Intake Agent...")
     intake_id = create_intake_agent()
 
@@ -182,21 +194,35 @@ def _create_and_configure_agents(
     logger.debug("[AGENTS] Creating Summary Agent...")
     summary_id = create_summary_agent()
 
+    # --- Domain agents (Phase 1) ---
+    logger.debug("[AGENTS] Creating domain agents (Phase 1)...")
+    domain_agents = create_all_domain_agents(PHASE_1_DOMAINS)
+
     logger.debug("[AGENTS] Creating Router Agent...")
     router_id = create_router_agent()
 
-    # Configure handoff chain (skips PATCH if handoffs already match).
+    # --- Configure handoff chain ---
     logger.debug("[AGENTS] Configuring handoff chain...")
 
-    _configure_handoffs(client, router_id, [intake_id], logger)
-    logger.debug("  Router -> Intake")
+    # Router → domain agents + generic intake (fallback)
+    router_handoff_targets = list(domain_agents.values()) + [intake_id]
+    _configure_handoffs(client, router_id, router_handoff_targets, logger)
+    domain_names = list(domain_agents.keys())
+    logger.debug(f"  Router -> [{', '.join(domain_names)}, Intake]")
 
+    # Each domain agent → Reasoning Logic (fan-in)
+    for domain_key, domain_id in domain_agents.items():
+        _configure_handoffs(client, domain_id, [reasoning_logic_id], logger)
+        logger.debug(f"  {domain_key} -> Reasoning Logic")
+
+    # Generic fallback path (kept for low-confidence classification)
     _configure_handoffs(client, intake_id, [fact_completion_id], logger)
     logger.debug("  Intake -> Fact Completion")
 
     _configure_handoffs(client, fact_completion_id, [reasoning_logic_id], logger)
     logger.debug("  Fact Completion -> Reasoning Logic")
 
+    # Downstream (shared across all paths)
     _configure_handoffs(client, reasoning_logic_id, [wrapup_id, fact_completion_id], logger)
     logger.debug("  Reasoning Logic -> [Wrap-Up, Fact Completion]")
 
@@ -206,7 +232,8 @@ def _create_and_configure_agents(
     # Summary is final -- no outgoing handoffs, no configuration needed.
     logger.debug("  Summary (final, no outgoing handoffs)")
 
-    return {
+    # Build agent registry
+    agents = {
         "router": router_id,
         "intake": intake_id,
         "fact_completion": fact_completion_id,
@@ -214,6 +241,11 @@ def _create_and_configure_agents(
         "wrapup": wrapup_id,
         "summary": summary_id,
     }
+    # Add domain agents with their domain key as the registry name
+    for domain_key, domain_id in domain_agents.items():
+        agents[domain_key] = domain_id
+
+    return agents
 
 
 __all__ = [
@@ -231,7 +263,7 @@ class MistralAgentsService:
     """Service for managing all Mistral AI Agents
 
     This service provides a convenient interface to create and manage
-    all 6 specialized agents for the legal intake workflow.
+    all agents for the legal intake workflow (core + domain agents).
     """
 
     def __init__(self):
@@ -240,12 +272,12 @@ class MistralAgentsService:
         self._logger = logging.getLogger(__name__)
 
     async def initialize_all_agents(self) -> dict[str, str]:
-        """Create all 6 agents, configure handoffs, and ensure version consistency.
+        """Create all agents, configure handoffs, and ensure version consistency.
 
         The agent workflow is:
-        Router -> Intake -> Fact Completion -> Reasoning Logic -> Wrap-Up -> Summary
-                                                    |
-                                  (contradiction) -> Fact Completion
+        Router → Domain Agent → Reasoning Logic → Wrap-Up → Summary
+                   │ (fallback)                        ↓
+                   └→ Intake → Fact Completion → (contradiction) → Fact Completion
 
         After creation and handoff wiring, agent versions are verified.  If any
         agents are at different versions (caused by partial prompt updates on
@@ -256,7 +288,8 @@ class MistralAgentsService:
         Returns:
             dict[str, str]: Mapping of agent names to agent IDs
         """
-        self._logger.info("[AGENTS] Initializing all 6 Mistral agents...")
+        total = 6 + len(PHASE_1_DOMAINS)  # core + domain agents
+        self._logger.info(f"[AGENTS] Initializing {total} Mistral agents...")
 
         from app.services.mistral_client import get_mistral_client
 
@@ -265,7 +298,7 @@ class MistralAgentsService:
         # Step 1: Create agents and configure handoffs
         self.agents = _create_and_configure_agents(client, self._logger)
 
-        self._logger.info("[AGENTS] All 6 agents initialized successfully!")
+        self._logger.info(f"[AGENTS] All {len(self.agents)} agents initialized successfully!")
 
         # Step 2: Verify version consistency and auto-sync if needed
         _sync_agent_versions(client, self.agents, self._logger)
@@ -277,7 +310,8 @@ class MistralAgentsService:
 
         Args:
             agent_name: Name of agent ("router", "intake", "fact_completion",
-                        "reasoning_logic", "wrapup", "summary")
+                        "reasoning_logic", "wrapup", "summary",
+                        "vertragsrecht", "mietrecht", "arbeitsrecht")
 
         Returns:
             str | None: Agent ID if exists, None otherwise
@@ -286,8 +320,9 @@ class MistralAgentsService:
 
     @property
     def is_initialized(self) -> bool:
-        """Check if all agents are initialized"""
-        return len(self.agents) == 6
+        """Check if all agents are initialized (core + domain)"""
+        expected = 6 + len(PHASE_1_DOMAINS)
+        return len(self.agents) >= expected
 
     def status(self) -> dict:
         """Get agent initialization status for health checks

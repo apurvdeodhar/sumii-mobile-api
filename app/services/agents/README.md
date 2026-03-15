@@ -1,271 +1,102 @@
 # Mistral Agents System
 
-This module implements the multi-agent orchestration system using the Mistral AI Agents API.
+This module implements the 9-agent domain-aware orchestration system using the Mistral AI Conversations API.
 
 ## Architecture
 
 ```mermaid
 flowchart LR
     User[User Message] --> Router[Router Agent]
-    Router --> Intake[Intake Agent]
-    Intake --> |"5W facts complete"| FactComp[Fact Completion Agent]
-    FactComp --> |"checklist complete"| Reasoning[Reasoning Logic Agent]
-    Reasoning --> |"no contradictions"| WrapUp[Wrap-Up Agent]
-    Reasoning -.-> |"contradiction found"| FactComp
-    WrapUp --> |"user confirms"| Summary[Summary Agent]
-    WrapUp -.-> |"user corrects"| FactComp
-    Summary --> User
+    Router -->|high confidence| Miet[Mietrecht Agent]
+    Router -->|high confidence| Arb[Arbeitsrecht Agent]
+    Router -->|high confidence| Vert[Vertragsrecht Agent]
+    Router -->|low confidence| Intake[Intake Agent]
+    Miet --> Reasoning[Reasoning Logic]
+    Arb --> Reasoning
+    Vert --> Reasoning
+    Intake --> FactComp[Fact Completion]
+    FactComp --> Reasoning
+    Reasoning --> WrapUp[Wrap-Up Agent]
+    Reasoning -.->|contradiction| FactComp
+    WrapUp --> Summary[Summary Agent]
+    WrapUp -.->|correction| FactComp
 ```
 
 ### Agent Roles
 
 | Agent | Purpose | Model |
 |-------|---------|-------|
-| **Router** | Silent routing to specialist agents | mistral-medium-2505 |
-| **Intake** | Collect facts using 5W framework (Who, What, When, Where, Why) | mistral-medium-2505 |
-| **Fact Completion** | Additional fact gathering with mandatory checklist | mistral-medium-2505 |
-| **Reasoning Logic** | **Contradiction detection and fact verification** | **magistral-medium-latest** |
-| **Wrap-Up** | Present structured summary for user confirmation | mistral-medium-2505 |
-| **Summary** | Generate user-friendly summary for lawyers | mistral-medium-2505 |
+| **Router** | Classifies legal domain via `classify_legal_domain` tool, routes to domain agent or Intake fallback | mistral-medium-2505 |
+| **Mietrecht Agent** | Domain-specific intake for tenancy law disputes/drafting | mistral-medium-2505 |
+| **Arbeitsrecht Agent** | Domain-specific intake for employment law disputes/drafting | mistral-medium-2505 |
+| **Vertragsrecht Agent** | Domain-specific intake for contract law disputes/drafting | mistral-medium-2505 |
+| **Intake** | Generic fallback for low-confidence classifications | mistral-medium-2505 |
+| **Fact Completion** | Additional fact gathering with 7-point framework | mistral-medium-2505 |
+| **Reasoning Logic** | Contradiction detection and fact verification | mistral-medium-2505 |
+| **Wrap-Up** | Completeness audit (14+ fields) + user confirmation | mistral-medium-2505 |
+| **Summary** | Generate lawyer-ready legal summary + PDF | mistral-medium-2505 |
 
-> **NEW**: Reasoning Logic Agent uses Mistral's Magistral model for multi-step reasoning
-> and can detect logical contradictions (e.g., "hit tree on Autobahn where trees are rare").
+**CRITICAL**: All 9 agents pinned to `mistral-medium-2505`. Do NOT use `-latest` (resolves to 2508, broken handoffs). Do NOT use `magistral-*` models (ThinkChunks cause error 3051).
 
 ## Key Files
 
 | File | Purpose |
 |------|---------|
-| `__init__.py` | `MistralAgentsService` - main service class |
-| `utils.py` | `AgentFactory`, shared prompts (`SUMII_CORE_DOS_DONTS`) |
-| `router.py` | Router agent creation |
-| `intake.py` | Intake agent creation + 5W tools |
-| `fact_completion.py` | Fact Completion agent - mandatory checklist before handoff |
-| `reasoning_logic.py` | **Reasoning Logic agent - Magistral model for contradiction detection** |
-| `wrapup.py` | Wrap-Up agent - confirms facts before summary |
-| `summary.py` | Summary agent creation |
+| `__init__.py` | `MistralAgentsService` — initialization, handoff config, version sync |
+| `utils.py` | `AgentFactory` (hash-based upsert), `SUMII_CORE_DOS_DONTS`, `GERMAN_LANGUAGE_INSTRUCTIONS` |
+| `router.py` | Router agent — domain classification |
+| `intake.py` | Intake agent — generic 5W fact collection (fallback) |
+| `fact_completion.py` | Fact Completion — 7-point framework, document upload prompting |
+| `reasoning_logic.py` | Reasoning Logic — contradiction detection |
+| `wrapup.py` | Wrap-Up — completeness audit, confirmation, declined fields |
+| `summary.py` | Summary agent — markdown + PDF generation |
+| `domains/domain_factory.py` | Template composition: base instructions + YAML configs |
+| `domains/base_instructions.py` | `BASE_INTERVIEW_FRAMEWORK`, `LITIGATION_STAGE_OVERLAY`, `BASE_HANDOFF_INSTRUCTIONS` |
+| `domains/configs/*.yaml` | Domain-specific interview questions (mietrecht, arbeitsrecht, vertragsrecht) |
+| `tools/function_schemas.py` | `classify_legal_domain`, `extract_facts`, `generate_summary` schemas |
+| `tools/completeness_check.py` | `check_completeness` — 14+ field audit with `declined_fields` |
+| `tools/document_tracker.py` | `track_documents` — categorize uploaded/mentioned/requested docs |
+| `tools/confirmation.py` | `signal_confirmation` — user yes/no + corrections |
 
-## How Agents Are Created (Upsert Pattern)
+## Domain-Aware Routing
 
-**Critical**: We use an **upsert** pattern to prevent stale prompts.
+Router classifies via `classify_legal_domain` function tool:
+- **High confidence (>=0.7)** + `is_civil=true` → domain-specific agent
+- **Low confidence (<0.7)** + `is_civil=true` → Intake fallback
+- `is_civil=false` → polite redirect, no handoff
 
-```python
-# From utils.py AgentFactory.create_agent()
-existing_agents = self.client.beta.agents.list()
-for agent in existing_agents:
-    if agent.name == name:
-        # UPDATE existing agent (preserves Agent ID)
-        self.client.beta.agents.update(agent_id=agent.id, ...)
-        return agent.id
+Classification stored on Conversation model (`legal_area`, `user_intent`, `classification` JSONB) — local-only, not sent back to Mistral.
 
-# CREATE new agent only if not found
-agent = self.client.beta.agents.create(...)
-return agent.id
-```
+## Domain Agents (Template Composition)
 
-**Why this matters**:
-- Mistral Conversations are bound to an **Agent ID**
-- If we `create()` a new agent, existing conversations use the OLD agent with OLD instructions
-- By `update()`-ing the existing agent, all conversations immediately use new instructions
-
-## OCR Document Handling
-
-When users upload files, the system:
-1. Extracts text via OCR (`pixtral-large-latest`)
-2. Injects OCR content into the user message:
+Domain agents are built via `create_domain_agent()` in `domain_factory.py`:
 
 ```
-IMPORTANT: The user has uploaded file(s)...
-
---- BEGIN EXTRACTED CONTENT FROM 'filename.jpg' ---
-[OCR TEXT]
---- END EXTRACTED CONTENT ---
-
---- USER'S REQUEST ---
-[User's actual message]
+BASE_INTERVIEW_FRAMEWORK (shared)
+  + domain YAML config (dispute + drafting questions)
+  + BASE_HANDOFF_INSTRUCTIONS (shared)
+  = complete agent instructions
 ```
 
-### Agent Prompt Instructions
+Zero duplication. Adding a new domain = one new YAML file in `domains/configs/`.
 
-All agents include `SUMII_CORE_DOS_DONTS` which contains:
+## Version Sync
 
-```
-<<<DOCUMENT ATTACHMENTS - CRITICAL>>>
-If the message includes "EXTRACTED CONTENT" (OCR text):
-1. ACKNOWLEDGE IT: "Ich sehe das Dokument..."
-2. USE IT: Extract facts directly from this text
-3. VERIFY IT: Ask user to confirm what you found
+All 9 agents must be at the same version (mismatch → error 3000). `_sync_agent_versions()` auto-recovers by appending `<!-- v-sync:N -->` markers to lagging agents. N-bump optimization: only bumps the single highest version needed.
 
-<<<PRIVACY & DATA HANDLING - CRITICAL>>>
-You are a LEGAL ASSISTANT. Handling personal documents is your JOB.
-- DO NOT REFUSE to analyze a document because it contains PII
-- Treat all data confidentially, but YOU MUST PROCESS IT
-```
+## Profile Data Injection
 
-## Mistral API Endpoints Used
+`build_user_profile_context()` (in `summary_validation.py`) prepends MANDANTENPROFIL to the first message:
+- Known profile fields are listed
+- Missing fields flagged as `FEHLENDE DATEN (bitte im Gespräch erfragen)`
+- Agent instructions say to ask for these during the interview
+- Profile is user-controlled — conversation data is NOT written back to profile
 
-| Endpoint | Purpose |
-|----------|---------|
-| `GET /v1/agents` | List existing agents (for upsert check) |
-| `POST /v1/agents` | Create new agent |
-| `PATCH /v1/agents/{id}` | Update existing agent |
-| `POST /v1/conversations#stream` | Start new conversation |
-| `POST /v1/conversations/{id}#stream` | Append to existing conversation |
+## Scripts
 
-## Lessons Learned
-
-### 1. Agent Updates Require Upsert
-**Problem**: Prompts updates weren't applying to existing conversations.
-**Cause**: `create()` generated new Agent IDs; old conversations were stuck on old agents.
-**Solution**: Implemented upsert pattern - find by name, update if exists.
-
-### 2. PII Handling Requires Explicit Authorization
-**Problem**: Agent refused to analyze driver's licenses ("I can't analyze personal info").
-**Cause**: Default safety guardrails in LLM.
-**Solution**: Added explicit "PRIVACY & DATA HANDLING" section to authorize PII processing.
-
-### 3. Lazy Initialization Causes Flakiness
-**Problem**: First request after deploy sometimes failed.
-**Cause**: Agents initialized lazily on first WebSocket connection.
-**Solution**: TODO - Initialize eagerly at app startup + add health check.
-
-### 4. Conversations API Stores Server-Side History
-**Insight**: Mistral's Conversations API maintains chat history server-side.
-- `start_stream` creates new conversation
-- `append_stream` adds to existing conversation
-- History persists across sessions (linked by `conversation_id`)
-
-### 5. Agent Updates Cause Version Mismatch (Fixed)
-**Problem**: HTTP 404 errors after container restart: `"Agent does not have a version X"`
-**Cause**: Each `agent.update()` increments the agent version. Existing conversations reference old versions.
-**Solution**: Hash-based change detection in `utils.py`:
-- Compute MD5 hash of instructions + description + tools
-- Embed hash in agent description: `[hash] description`
-- Skip updates when hash matches (no changes)
-- Logs: `"Agent 'X' unchanged (hash=...), skipping update"`
-
-### 6. Stale Conversations Cause 404 (Fixed - Auto-Recovery)
-**Problem**: After agents are deleted/recreated, existing conversations fail with 404:
-```
-Agent with id ag_xxx does not have a version 1
-```
-**Cause**: A conversation stores `mistral_conversation_id` in DB. When agents change, old Mistral conversations become invalid.
-**Solution** (in `websocket.py`):
-```python
-# When append_stream fails with 404:
-if "404" in str(e) or "does not have a version" in str(e):
-    conversation.mistral_conversation_id = None  # Clear stale ID
-    await db.commit()
-    # Retry with start_stream() for fresh conversation
-    response = client.beta.conversations.start_stream(agent_id=router_id, inputs=...)
-```
-
-### 7. Parallel Function Calling Requires Multiple Results (Fixed)
-**Problem**: When an agent calls 2+ functions at once (e.g., `signal_confirmation` + `track_documents`):
-```
-Error: Not the same number of function calls and responses (code: 3230)
-```
-**Root Cause**: The original code from Mistral cookbook only handles ONE function call:
-```python
-# WRONG - concatenates JSON, loses tool_call_ids
-pending_arguments += result[3]  # {"a":1}{"b":2} = INVALID!
-```
-**Solution**: Track each function call separately and send ALL results back:
-```python
-# Each function tracked with its own ID and arguments
-pending_function_calls: list[dict] = []
-for func_call in pending_function_calls:
-    function_results.append(FunctionResultEntry(
-        tool_call_id=func_call["tool_call_id"],
-        result=f"Function {func_call['function_name']} executed.",
-    ))
-# Send ALL results at once
-inputs=function_results  # List with N FunctionResultEntry objects
-```
-**Reference**: See `Chainlit_Mistral_reasoning.ipynb` in Mistral cookbook for `run_multiple()` pattern.
-
-### 8. LLM Refusal Hallucination (Fixed)
-**Problem**: Agent randomly says: "I don't have the necessary tools or information to assist"
-**Cause**: Generic LLM fallback response when it loses context during handoffs.
-**Solution**: Added explicit anti-refusal instructions to `SUMII_CORE_DOS_DONTS`:
-```
-**NEVER SAY (critical anti-refusal instructions):**
-- "I don't have the necessary tools or information to assist"
-- "I'm not able to help with this specific issue"
-- Any variation of refusing to continue the interview
-- ALWAYS continue by asking the next logical question
-```
-
-### 9. Stream Hangs on Function Calls (Fixed)
-**Problem**: Stream processing hangs indefinitely when agent calls `generate_summary` or other functions.
-**Symptom**: Logs show hundreds of `🛠️ [FUNCTION_CALL]` lines but never reach completion.
-**Root Cause**: Missing handler for `ResponseDoneEvent`! The Mistral SDK sends this event to signal stream completion, but we weren't detecting it:
-```python
-# WRONG - only checking "done" in string representation
-if "done" in str(event_type).lower():  # Never matches ResponseDoneEvent!
-```
-**Solution** (in `websocket.py`):
-```python
-from mistralai import ResponseDoneEvent, ToolExecutionDoneEvent
-
-# In _process_single_event:
-case ResponseDoneEvent():
-    logger.info("🏁 [STREAM] ResponseDoneEvent received - stream complete!")
-    return "done"
-```
-**Key Mistral SDK events to handle**:
-- `MessageOutputEvent` - Text chunks
-- `FunctionCallEvent` - Function call with arguments (may stream many times)
-- `AgentHandoffDoneEvent` - Handoff between agents
-- `ResponseDoneEvent` - **CRITICAL: Stream completion signal**
-- `ToolExecutionDoneEvent` - Tool finished executing
-- `ResponseErrorEvent` - Error occurred
-
-## Configuration
-
-### Environment Variables
-
-```bash
-MISTRAL_API_KEY=your-api-key
-```
-
-### Handoff Configuration
-
-Handoffs are configured after all agents are created:
-
-```python
-# Router can hand off to Intake
-client.beta.agents.update(agent_id=router_id, handoffs=[intake_id])
-
-# Intake -> Fact Completion
-client.beta.agents.update(agent_id=intake_id, handoffs=[fact_completion_id])
-
-# Fact Completion -> Reasoning Logic
-client.beta.agents.update(agent_id=fact_completion_id, handoffs=[reasoning_logic_id])
-
-# Reasoning Logic -> Wrap-Up (or back to Fact Completion on contradiction)
-client.beta.agents.update(agent_id=reasoning_logic_id, handoffs=[wrapup_id, fact_completion_id])
-
-# Wrap-Up -> Summary (or back to Fact Completion on correction)
-client.beta.agents.update(agent_id=wrapup_id, handoffs=[summary_id, fact_completion_id])
-```
-
-## Debugging
-
-### Check Agent Updates
-Look for PATCH requests in Docker logs:
-```
-HTTP Request: PATCH https://api.mistral.ai/v1/agents/ag_xxx "HTTP/1.1 200 OK"
-```
-
-### Check Augmented Content
-Look for OCR injection in logs:
-```
-[WebSocket] Sending augmented content to LLM (first 500 chars):
-IMPORTANT: The user has uploaded file(s)...
-```
-
-### Verify Conversation ID
-Each conversation has a Mistral conversation ID (`conv_xxx`):
-```
-HTTP Request: POST https://api.mistral.ai/v1/conversations/conv_xxx#stream
-```
+| Script | Purpose |
+|--------|---------|
+| `scripts/reset_mistral_agents.py --all` | Delete all agents and recreate on restart |
+| `scripts/test_domain_agents.py` | Validate domain architecture against Mistral workspace |
+| `scripts/diagnose_stream_stall.py` | Reproduce and test error 3000 recovery |
+| `scripts/e2e_websocket_test.py` | Full E2E conversation through localhost WS |

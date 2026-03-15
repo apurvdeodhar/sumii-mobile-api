@@ -178,7 +178,7 @@ async def conversation_progress(
         },
         "legal_analysis": {
             "status": "completed"
-            if conversation.analysis_done
+            if conversation.reasoning_done
             else ("in_progress" if all_facts_collected else "pending")
         },
         "summary_generation": {"status": "completed" if conversation.summary_generated else "pending"},
@@ -187,7 +187,7 @@ async def conversation_progress(
     # Determine next step message
     if conversation.summary_generated:
         next_step = "Conversation complete - summary available"
-    elif conversation.analysis_done:
+    elif conversation.reasoning_done:
         next_step = "Generating legal summary document"
     elif all_facts_collected:
         next_step = "Reasoning Agent analyzing and connecting facts"

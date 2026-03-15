@@ -3,7 +3,7 @@
 All models must be imported here for Alembic auto-detect to work.
 """
 
-from app.models.conversation import CaseStrength, Conversation, ConversationStatus, LegalArea, Urgency
+from app.models.conversation import CaseStrength, Conversation, ConversationStatus, LegalArea, Urgency, UserIntent
 from app.models.document import Document, OCRStatus, UploadStatus
 from app.models.lawyer_connection import ConnectionStatus, LawyerConnection
 from app.models.message import Message, MessageRole
@@ -28,6 +28,7 @@ __all__ = [
     "LegalArea",
     "CaseStrength",
     "Urgency",
+    "UserIntent",
     "MessageRole",
     "OCRStatus",
     "UploadStatus",

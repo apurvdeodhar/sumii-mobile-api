@@ -29,7 +29,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import flag_modified
 
 from app.database import get_db
-from app.models import Conversation, Document, Message, MessageRole, ThinkingSteps, User
+from app.models import Conversation, Document, Message, MessageRole, ThinkingSteps, User, UserIntent
+from app.models.conversation import LegalArea
 from app.schemas.summary_validation import build_user_profile_context, validate_and_enrich_summary
 from app.services.agents import MistralAgentsService, get_mistral_agents_service
 from app.services.mistral_client import get_mistral_async_client
@@ -42,14 +43,23 @@ router = APIRouter()
 # Patterns to replace leaked internal agent names with "Sumii" in user-facing text.
 # Two tiers: (1) full "X Agent" names, (2) "I'm/I am X" without "Agent" suffix (catches split chunks).
 _AGENT_NAME_REPLACEMENTS: list[tuple[re.Pattern, str]] = [
-    # Full agent names → "Sumii"
+    # Full agent names → "Sumii" (core + domain agents)
     (
-        re.compile(r"(?:Intake|Router|Summary|Wrap-?Up|Fact[\s-]?Completion|Reasoning[\s-]?Logic)\s*Agent", re.I),
+        re.compile(
+            r"(?:Intake|Router|Summary|Wrap-?Up|Fact[\s-]?Completion|Reasoning[\s-]?Logic"
+            r"|Mietrecht|Vertragsrecht|Arbeitsrecht|Familienrecht|Erbrecht"
+            r"|Deliktsrecht|Sachenrecht|Gesellschaftsrecht)\s*Agent",
+            re.I,
+        ),
         "Sumii",
     ),
     # "I'm/I am [role]" without Agent suffix → "I'm Sumii" (catches split-chunk leaks)
     (
-        re.compile(r"I(?:'m| am) (?:the )?(?:Intake|Router|Summary|Wrap-?Up|Fact[\s-]?Completion|Reasoning)", re.I),
+        re.compile(
+            r"I(?:'m| am) (?:the )?(?:Intake|Router|Summary|Wrap-?Up|Fact[\s-]?Completion|Reasoning"
+            r"|Mietrecht|Vertragsrecht|Arbeitsrecht)",
+            re.I,
+        ),
         "I'm Sumii",
     ),
     # German handoff leak
@@ -87,6 +97,54 @@ def sanitize_agent_text(text: str) -> str:
     return result
 
 
+def normalize_markdown_spacing(text: str) -> str:
+    """Fix common LLM markdown formatting issues caused by Mistral streaming.
+
+    Mistral's streaming chunks often produce these artifacts:
+    - Headings concatenated with text: "### Dein AnliegenDu hast" (no newline)
+    - Orphaned punctuation: "## Wer ist beteiligt\\n\\n?" (? on own line)
+    - Split heading markers: "#\\n\\n## Heading" (### split across lines)
+    - Orphaned partial words: "genann\\n\\nt" (word split across chunks)
+    - Bullet concatenation: "- **A:** val- **B:** val" (no newline)
+    """
+    if not text:
+        return text
+
+    # 1. Fix split heading markers: "#\n\n## " should be "### ", "#\n\n# " → "## "
+    text = re.sub(r"#\n\n(#{1,2}\s)", r"#\1", text)
+
+    # 2. Merge orphaned single characters back to previous line (streaming artifact)
+    #    e.g., "genann\n\nt\n" → "gennant\n", "Angabe\n\nn\n" → "Angaben\n"
+    text = re.sub(r"\n\n([a-zäöüß])\n", r"\1\n", text)
+
+    # 3. Merge orphaned punctuation back to previous line
+    #    e.g., "beteiligt\n\n?\n" → "beteiligt?\n", "Daten\n\n)\n" → "Daten)\n"
+    text = re.sub(r"\n\n([.?!:);,])\s*\n", r"\1\n", text)
+    text = re.sub(r"\n\n([.?!:);,])\s*$", r"\1", text)
+
+    # 4. Insert double newline before ## or ### that follow non-newline content
+    #    (?<!#) prevents matching ## inside ### (which would split ### back into #\n\n##)
+    text = re.sub(r"(?<!\n)(?<!#)(#{2,3}\s)", r"\n\n\1", text)
+
+    # 5. Insert newline before bullet points when preceded by content on same line
+    #    Handles both "- **bold:**" and plain "- text" bullets
+    text = re.sub(r"(?<!\n)(- )", r"\n\1", text)
+
+    # 6. Within heading lines, split at lowercase→uppercase transitions (concatenation artifact)
+    #    e.g., "### Dein AnliegenDu hast" → "### Dein Anliegen\n\nDu hast"
+    #    Safe because German words don't have mid-word camelCase, and spaces prevent
+    #    false matches on legitimate text like "### Dein Anliegen" (space before uppercase).
+    text = re.sub(r"^(#{2,3}\s+.*?[a-zäöüß])([A-ZÄÖÜ])", r"\1\n\n\2", text, flags=re.MULTILINE)
+
+    # 7. Fix "---" horizontal rules that are concatenated with text
+    text = re.sub(r"(?<!\n)(---)", r"\n\n\1", text)
+
+    # 8. Clean up triple+ newlines
+    text = re.sub(r"\n{3,}", "\n\n", text)
+
+    return text.lstrip("\n")
+
+
 def get_thinking_description(agent: str, lang: str = "de") -> str:
     """Get a human-readable description for the thinking bubble based on agent name.
 
@@ -99,13 +157,17 @@ def get_thinking_description(agent: str, lang: str = "de") -> str:
     """
     descriptions = {
         "de": {
-            "router": "Analysiere Ihre Anfrage...",
+            "router": "Analysiere deine Anfrage...",
             "intake": "Erfasse die relevanten Fakten...",
             "fact_completion": "Sammle weitere Details...",
             "reasoning": "Wende rechtliche Analyse an...",
             "wrapup": "Bereite Zusammenfassung vor...",
             "wrap_up": "Bereite Zusammenfassung vor...",
-            "summary": "Erstelle Ihre Fallzusammenfassung...",
+            "summary": "Erstelle deine Fallzusammenfassung...",
+            # Domain agents — all show the same intake message
+            "mietrecht": "Erfasse die relevanten Fakten...",
+            "vertragsrecht": "Erfasse die relevanten Fakten...",
+            "arbeitsrecht": "Erfasse die relevanten Fakten...",
         },
         "en": {
             "router": "Analyzing your request...",
@@ -115,10 +177,15 @@ def get_thinking_description(agent: str, lang: str = "de") -> str:
             "wrapup": "Preparing wrap-up...",
             "wrap_up": "Preparing wrap-up...",
             "summary": "Creating your case summary...",
+            # Domain agents
+            "mietrecht": "Collecting relevant facts...",
+            "vertragsrecht": "Collecting relevant facts...",
+            "arbeitsrecht": "Collecting relevant facts...",
         },
     }
     lang_dict = descriptions.get(lang, descriptions["de"])
-    agent_lower = agent.lower()
+    # Normalize hyphens to underscores for matching (e.g., "wrap-up_agent" → "wrap_up_agent")
+    agent_lower = agent.lower().replace("-", "_")
     for key, value in lang_dict.items():
         if key in agent_lower:
             return value
@@ -128,6 +195,14 @@ def get_thinking_description(agent: str, lang: str = "de") -> str:
 def normalize_agent_id(agent: str) -> str:
     """Normalize agent name to standard agent_id for steps tracking."""
     lower = agent.lower().replace("_", "").replace("agent", "")
+    # Domain agents (Phase 1) — check BEFORE generic patterns
+    if "mietrecht" in lower:
+        return "mietrecht"
+    if "arbeitsrecht" in lower:
+        return "arbeitsrecht"
+    if "vertragsrecht" in lower:
+        return "vertragsrecht"
+    # Core agents
     if "router" in lower:
         return "router"
     if "intake" in lower:
@@ -655,6 +730,64 @@ async def _handle_function_call(
             logger.error(f"Failed to parse document tracking arguments: {e}")
             logger.error(f"[TRACK_DOCS] Raw args: {arguments[:200] if arguments else 'None'}")
 
+    elif function_name == "classify_legal_domain":
+        logger.info(f"[ROUTER] classify_legal_domain called for conversation {conversation.id}")
+        try:
+            classification = json.loads(arguments) if arguments else {}
+            domain = classification.get("domain", "")
+            intent = classification.get("intent", "dispute")
+            confidence = classification.get("confidence", 0.0)
+            is_civil = classification.get("is_civil", True)
+
+            logger.info(
+                f"[ROUTER] Classification: domain={domain}, intent={intent}, "
+                f"confidence={confidence}, is_civil={is_civil}"
+            )
+
+            # Store classification on conversation
+            conversation.classification = classification
+
+            # Map domain string to LegalArea enum (capitalize first letter to match enum values)
+            domain_to_legal_area = {
+                "vertragsrecht": LegalArea.VERTRAGSRECHT,
+                "mietrecht": LegalArea.MIETRECHT,
+                "arbeitsrecht": LegalArea.ARBEITSRECHT,
+                "familienrecht": LegalArea.FAMILIENRECHT,
+                "erbrecht": LegalArea.ERBRECHT,
+                "deliktsrecht": LegalArea.DELIKTSRECHT,
+                "sachenrecht": LegalArea.SACHENRECHT,
+                "gesellschaftsrecht": LegalArea.GESELLSCHAFTSRECHT,
+            }
+            if domain in domain_to_legal_area:
+                conversation.legal_area = domain_to_legal_area[domain]
+
+            # Map intent string to UserIntent enum
+            intent_to_enum = {
+                "dispute": UserIntent.DISPUTE,
+                "drafting": UserIntent.DRAFTING,
+            }
+            if intent in intent_to_enum:
+                conversation.user_intent = intent_to_enum[intent]
+
+            flag_modified(conversation, "classification")
+
+        except json.JSONDecodeError as e:
+            logger.error(f"[ROUTER] Failed to parse classification arguments: {e}")
+
+    elif function_name == "check_completeness":
+        logger.info(f"[COMPLETENESS] Processing check_completeness for conversation {conversation.id}")
+        try:
+            args = json.loads(arguments) if arguments else {}
+            declined = args.get("declined_fields", [])
+            if declined:
+                existing = conversation.missing_info or {}
+                existing["declined_fields"] = declined
+                conversation.missing_info = existing
+                flag_modified(conversation, "missing_info")
+                logger.info(f"[COMPLETENESS] Tracked declined fields: {declined}")
+        except json.JSONDecodeError:
+            logger.warning("[COMPLETENESS] Could not parse check_completeness arguments")
+
     elif function_name == "generate_summary":
         logger.info(f"📝 AUTO-TRIGGER: Summary generation for conversation {conversation.id}")
         logger.debug(f"[SUMMARY] Arguments length: {len(arguments) if arguments else 0} chars")
@@ -669,7 +802,8 @@ async def _handle_function_call(
 
         try:
             raw_args = json.loads(arguments) if arguments else {}
-            validated = validate_and_enrich_summary(raw_args, user=user)
+            declined = (conversation.missing_info or {}).get("declined_fields", [])
+            validated = validate_and_enrich_summary(raw_args, user=user, declined_fields=declined)
             summary_case_data = validated.model_dump()
             trigger_summary = True
             logger.info(f"[SUMMARY] ✅ Validated data, keys: {list(summary_case_data.keys())}")
@@ -863,7 +997,7 @@ async def _generate_summary_background(
             try:
                 notif_title = "Zusammenfassung bereit" if user_language == "de" else "Summary ready"
                 notif_message = (
-                    "Ihre rechtliche Zusammenfassung ist verfügbar"
+                    "Deine rechtliche Zusammenfassung ist verfügbar"
                     if user_language == "de"
                     else "Your legal summary is available"
                 )
@@ -1870,6 +2004,7 @@ async def process_with_agents(
         # Combine response chunks and do a final sanitization pass
         # (catches agent names split across streaming chunks)
         full_response = sanitize_agent_text("".join(full_response_parts))
+        full_response = normalize_markdown_spacing(full_response)
 
         # Finalize ThinkingSteps BEFORE message_complete so the mobile app
         # dismisses the ThinkingBubble before showing the chat bubble.
@@ -1914,6 +2049,23 @@ async def process_with_agents(
                     "content": full_response,
                     "agent": current_agent_name,
                     "timestamp": ai_message.created_at.isoformat(),
+                }
+            )
+
+        elif trigger_summary_generation:
+            # Summary agent called generate_summary with no text output.
+            # Still need to send message_complete so mobile clears isProcessing.
+            logger.info(
+                f"[END] Summary trigger with no text for conversation {conversation.id}, "
+                f"sending empty message_complete"
+            )
+            await websocket.send_json(
+                {
+                    "type": "message_complete",
+                    "message_id": None,
+                    "content": "",
+                    "agent": current_agent_name,
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
                 }
             )
 

@@ -76,6 +76,12 @@ Group D — Documents (if missing_critical_documents): You MUST ask the user to 
 Rules:
 - Ask ONCE per missing field — group related questions together (max 3-4 questions per message)
 - If user says "skip", "weiter", "I don't know" → proceed without that field
+- When user declines a field ("skip", "nein", "möchte ich nicht sagen", "weiter ohne"),
+  include it in the `declined_fields` array when calling `check_completeness`.
+  Do NOT re-ask declined fields in subsequent rounds.
+- In the wrap-up summary, show declined fields as:
+  DE: "Nicht angegeben (vom Mandanten abgelehnt)"
+  EN: "Not specified (declined by client)"
 - Do NOT ask more than 2 rounds of follow-up questions total
 - Pre-fill from MANDANTENPROFIL: "Ich sehe, dass du [Name] bist und eine Rechtsschutzversicherung
   bei der [Versicherer] hast — stimmt das?"
@@ -105,7 +111,7 @@ You MUST respond in the user's preferred language:
 
 Lass mich zusammenfassen, was ich verstanden habe:
 
-### Mandant (Ihre Daten)
+### Mandant (Deine Daten)
 - **Name:** [from MANDANTENPROFIL or conversation]
 - **Adresse:** [from MANDANTENPROFIL if available]
 - **Rechtsschutzversicherung:** [Ja/Nein]
@@ -263,6 +269,10 @@ English: "Thank you for the correction. I will update that."
 - **NEVER** say vague things like "let me verify" or "processing" after user confirms
 - After calling signal_confirmation, produce **NO TEXT OUTPUT**
 - The handoff to Summary Agent must be SILENT (no user-facing message)
+- Each heading (##, ###) MUST be on its own line with a blank line before it
+- Each bullet point (- **Field:**) MUST be on its own line
+- NEVER concatenate headings or bullet points on the same line
+- Always insert a blank line between a heading and the following content
 """
 
     return factory.create_agent(

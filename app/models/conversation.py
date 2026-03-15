@@ -23,12 +23,24 @@ class ConversationStatus(str, PyEnum):
 
 
 class LegalArea(str, PyEnum):
-    """German Civil Law areas"""
+    """German Civil Law areas (8 domains from Nick's taxonomy + Other fallback)"""
 
-    MIETRECHT = "Mietrecht"  # Rent Law
-    ARBEITSRECHT = "Arbeitsrecht"  # Employment Law
     VERTRAGSRECHT = "Vertragsrecht"  # Contract Law
-    OTHER = "Other"  # Other legal areas
+    MIETRECHT = "Mietrecht"  # Tenancy Law
+    ARBEITSRECHT = "Arbeitsrecht"  # Employment Law
+    FAMILIENRECHT = "Familienrecht"  # Family Law
+    ERBRECHT = "Erbrecht"  # Succession / Inheritance
+    DELIKTSRECHT = "Deliktsrecht"  # Tort Law (Wrongdoing)
+    SACHENRECHT = "Sachenrecht"  # Property Law (Immobiliar)
+    GESELLSCHAFTSRECHT = "Gesellschaftsrecht"  # Company Law
+    OTHER = "Other"  # Other / unclassified
+
+
+class UserIntent(str, PyEnum):
+    """User intent type — dispute vs document drafting"""
+
+    DISPUTE = "dispute"  # Concrete case / active problem
+    DRAFTING = "drafting"  # Document drafting / creation
 
 
 class CaseStrength(str, PyEnum):
@@ -76,9 +88,13 @@ class Conversation(Base):
     status = Column(Enum(ConversationStatus), default=ConversationStatus.ACTIVE, nullable=False, index=True)
 
     # Legal analysis metadata (filled by agents)
-    legal_area = Column(Enum(LegalArea), nullable=True)  # Set by Intake Agent
+    legal_area = Column(Enum(LegalArea), nullable=True)  # Set by Router/Intake Agent
+    user_intent = Column(Enum(UserIntent), nullable=True)  # Set by Router: dispute or drafting
     case_strength = Column(Enum(CaseStrength), nullable=True)  # Set by Reasoning Agent
     urgency = Column(Enum(Urgency), nullable=True)  # Set by Intake Agent
+
+    # Router classification result (full classify_legal_domain output)
+    classification = Column(JSONB, nullable=True)  # {domain, intent, confidence, is_civil, reasoning}
 
     # Agent orchestration
     current_agent = Column(String(50), nullable=True)  # Current agent: "router", "intake", "reasoning", "summary", null

@@ -27,7 +27,7 @@ from app.schemas.document import DocumentResponse
 from app.schemas.lawyer_connection import LawyerConnectionResponse
 from app.schemas.notification import NotificationResponse
 from app.schemas.summary import SummaryResponse
-from app.schemas.sync import DeletedIds, SyncRequest, SyncResponse
+from app.schemas.sync import DeletedIds, SyncRequest, SyncResponse, UserProfileSyncResponse
 from app.schemas.thinking_steps import ThinkingStepsResponse
 from app.users import current_active_user
 
@@ -167,6 +167,21 @@ async def sync_data(
         notifications=[NotificationResponse.model_validate(n) for n in notifications],
         lawyer_connections=[LawyerConnectionResponse.model_validate(lc) for lc in lawyer_connections],
         thinking_steps=[ThinkingStepsResponse.model_validate(tb) for tb in thinking_steps_list],
+        user_profile=UserProfileSyncResponse(
+            id=str(current_user.id),
+            email=current_user.email,
+            nickname=current_user.nickname,
+            first_name=current_user.first_name,
+            last_name=current_user.last_name,
+            phone=current_user.phone,
+            address_street=current_user.address_street,
+            address_city=current_user.address_city,
+            address_postal_code=current_user.address_postal_code,
+            language=current_user.language,
+            legal_insurance=current_user.legal_insurance,
+            insurance_company=current_user.insurance_company,
+            insurance_number=current_user.insurance_number,
+        ),
         deleted_ids=deleted_ids,
         server_time=server_time,
         is_full_sync=is_full_sync,

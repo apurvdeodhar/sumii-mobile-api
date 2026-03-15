@@ -4,6 +4,58 @@ This module defines the function calling schemas used by Mistral agents
 for structured data extraction during legal conversations.
 """
 
+# Domain classification schema (Router Agent)
+# Router calls this to classify the user's legal domain and intent before handoff.
+CLASSIFY_LEGAL_DOMAIN_SCHEMA = {
+    "type": "function",
+    "function": {
+        "name": "classify_legal_domain",
+        "description": (
+            "Classify the user's legal domain and intent based on their message. "
+            "Call this BEFORE handing off to determine which domain agent should handle the case."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "domain": {
+                    "type": "string",
+                    "enum": [
+                        "vertragsrecht",
+                        "mietrecht",
+                        "arbeitsrecht",
+                        "familienrecht",
+                        "erbrecht",
+                        "deliktsrecht",
+                        "sachenrecht",
+                        "gesellschaftsrecht",
+                    ],
+                    "description": "The area of German civil law that best matches the user's situation",
+                },
+                "intent": {
+                    "type": "string",
+                    "enum": ["dispute", "drafting"],
+                    "description": (
+                        "User intent: 'dispute' for active legal problems/claims, "
+                        "'drafting' for document creation/contract drafting"
+                    ),
+                },
+                "confidence": {
+                    "type": "number",
+                    "description": "Classification confidence from 0.0 to 1.0",
+                },
+                "is_civil": {
+                    "type": "boolean",
+                    "description": (
+                        "Whether this is civil/private law (true) or criminal/public law (false). "
+                        "Sumii only handles civil law."
+                    ),
+                },
+            },
+            "required": ["domain", "intent", "confidence", "is_civil"],
+        },
+    },
+}
+
 # Legal facts extraction schema (Intake Agent)
 LEGAL_FACTS_SCHEMA = {
     "type": "function",
@@ -30,7 +82,17 @@ LEGAL_FACTS_SCHEMA = {
                     "properties": {
                         "legal_area": {
                             "type": "string",
-                            "enum": ["Mietrecht", "Arbeitsrecht", "Vertragsrecht", "Other"],
+                            "enum": [
+                                "Vertragsrecht",
+                                "Mietrecht",
+                                "Arbeitsrecht",
+                                "Familienrecht",
+                                "Erbrecht",
+                                "Deliktsrecht",
+                                "Sachenrecht",
+                                "Gesellschaftsrecht",
+                                "Other",
+                            ],
                             "description": "Area of German Civil Law",
                         },
                         "issue_description": {"type": "string", "description": "Brief summary of the legal issue"},

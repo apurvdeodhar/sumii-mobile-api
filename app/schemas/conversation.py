@@ -6,7 +6,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field
 
-from app.models.conversation import CaseStrength, ConversationStatus, LegalArea, Urgency
+from app.models.conversation import CaseStrength, ConversationStatus, LegalArea, Urgency, UserIntent
 from app.schemas.thinking_steps import ThinkingStepsResponse
 
 
@@ -46,6 +46,8 @@ class ConversationResponse(BaseModel):
     title: str | None
     status: ConversationStatus
     legal_area: LegalArea | None
+    user_intent: UserIntent | None = None
+    classification: dict[str, Any] | None = None
     case_strength: CaseStrength | None
     urgency: Urgency | None
     current_agent: str | None
@@ -92,7 +94,7 @@ class ConversationWithMessages(ConversationResponse):
 
     # Include dynamic orchestration metadata for debugging/admin
     facts_collected: dict[str, Any] | None = None
-    analysis_done: bool = False
+    reasoning_done: bool = False
     summary_generated: bool = False
 
     # 5W framework facts

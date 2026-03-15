@@ -162,6 +162,19 @@ COMPLETENESS_CHECK_SCHEMA = {
                         "Report ALL that are empty."
                     ),
                 },
+                "declined_fields": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": (
+                        "Fields the user EXPLICITLY refused to provide. "
+                        "Only include if user said 'skip', 'nein', 'möchte ich nicht sagen', "
+                        "'I don't want to say', 'weiter', or similar clear refusal. "
+                        "Do NOT include fields that simply were not asked yet. "
+                        "Possible values: client_name, client_address, opposing_party, "
+                        "incident_date, legal_insurance, insurance_company, insurance_number, "
+                        "prior_legal_steps, witnesses, deadline_info, financial_claim_value."
+                    ),
+                },
             },
             "required": [
                 "client_name",
@@ -177,6 +190,7 @@ COMPLETENESS_CHECK_SCHEMA = {
                 "missing_critical_fields",
                 "missing_case_fields",
                 "missing_profile_fields",
+                "declined_fields",
             ],
         },
     },

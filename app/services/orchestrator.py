@@ -4,16 +4,22 @@ This module implements dynamic agent routing based on conversation state.
 Instead of a linear pipeline (Router → Intake → Reasoning → Summary),
 the orchestrator decides which agent to use based on:
 - Facts completeness (5W framework)
-- Analysis completion status
+- Reasoning completion status
 - Summary generation status
 
 This enables:
 - Dynamic routing (skip agents if facts already complete)
 - Resuming interrupted conversations
 - Flexible conversation flow
+
+Agent flow (domain-aware):
+Router → Domain Agent (or fallback Intake) → Reasoning → WrapUp → Summary
 """
 
 from app.models.conversation import Conversation
+
+# Domain agent names used by the 3 Phase 1 domain agents
+DOMAIN_AGENT_NAMES = {"mietrecht", "arbeitsrecht", "vertragsrecht"}
 
 
 class ConversationOrchestrator:
@@ -24,8 +30,8 @@ class ConversationOrchestrator:
 
         Decision Logic:
         1. Summary already generated → Router (handle new questions)
-        2. Analysis done, no summary → Summary (generate final document)
-        3. Facts complete, no analysis → Reasoning (analyze and connect facts)
+        2. Reasoning done, no summary → Summary (generate final document)
+        3. Facts complete, no reasoning → Reasoning (contradiction detection)
         4. Facts incomplete → Intake (collect more facts)
 
         Args:
@@ -36,7 +42,7 @@ class ConversationOrchestrator:
         """
         # Check conversation state flags
         summary_done = conversation.summary_generated
-        analysis_done = conversation.analysis_done
+        reasoning_done = conversation.reasoning_done
         facts_complete = self._check_facts_completeness(conversation)
 
         # Decision tree
@@ -44,12 +50,12 @@ class ConversationOrchestrator:
             # Conversation complete - Router handles new questions
             return "router"
 
-        elif analysis_done and not summary_done:
-            # Legal analysis complete - Generate summary
+        elif reasoning_done and not summary_done:
+            # Reasoning complete - Generate summary
             return "summary"
 
-        elif facts_complete and not analysis_done:
-            # All facts collected - Analyze and connect facts
+        elif facts_complete and not reasoning_done:
+            # All facts collected - Reasoning for contradiction detection
             return "reasoning"
 
         else:
@@ -90,14 +96,14 @@ class ConversationOrchestrator:
         """Update conversation metadata after agent response
 
         This method updates conversation state based on which agent just completed:
-        - Intake Agent: Updates 5W facts in JSONB fields
-        - Reasoning Agent: Sets analysis_done = True
+        - Intake/Domain Agent: Updates 5W facts in JSONB fields
+        - Reasoning Agent: Sets reasoning_done = True
         - Summary Agent: Sets summary_generated = True
 
         Args:
             conversation: Conversation ORM model to update
-            agent_name: Name of agent that just responded ("intake", "reasoning", "summary")
-            facts: Optional facts dict from Intake Agent (5W framework data)
+            agent_name: Name of agent that just responded
+            facts: Optional facts dict from Intake/Domain Agent (5W framework data)
 
         Returns:
             None (modifies conversation in-place)
@@ -105,20 +111,17 @@ class ConversationOrchestrator:
         Note:
             Caller must commit database session after this method
         """
-        if agent_name == "intake" and facts:
-            # Update 5W facts from Intake Agent
-            # Facts format: {"who": {...}, "what": {...}, "when": {...}, "where": {...}, "why": {...}}
+        # Domain agents and generic Intake both extract 5W facts
+        is_intake_type = agent_name == "intake" or agent_name in DOMAIN_AGENT_NAMES
+        if is_intake_type and facts:
             for fact_name, fact_data in facts.items():
                 if fact_name in ["who", "what", "when", "where", "why"]:
-                    # Set JSONB field with "collected" flag
                     setattr(conversation, fact_name, {"collected": True, **fact_data})
 
         elif agent_name == "reasoning":
-            # Reasoning Agent completed legal analysis
-            conversation.analysis_done = True
+            conversation.reasoning_done = True
 
         elif agent_name == "summary":
-            # Summary Agent generated final document
             conversation.summary_generated = True
 
 

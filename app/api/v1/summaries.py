@@ -222,7 +222,7 @@ async def create_summary(
             await push_service.send_to_user(
                 user=current_user,
                 title="Zusammenfassung bereit",
-                body="Ihre rechtliche Zusammenfassung ist jetzt verfügbar.",
+                body="Deine rechtliche Zusammenfassung ist jetzt verfügbar.",
                 data={
                     "type": "summary_ready",
                     "summary_id": str(summary.id),

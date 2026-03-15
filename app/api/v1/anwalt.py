@@ -216,7 +216,7 @@ async def auto_match_lawyer(
     if not lawyers:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Kein Anwalt in der Nähe gefunden. Bitte versuchen Sie es mit einer anderen PLZ.",
+            detail="Kein Anwalt in der Nähe gefunden. Bitte versuche es mit einer anderen PLZ.",
         )
 
     # Pick the closest lawyer (first result — search_lawyers returns sorted by distance)

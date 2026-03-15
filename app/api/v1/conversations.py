@@ -137,7 +137,7 @@ async def get_conversation(
         thinking_steps=conversation.thinking_steps,
         summary_id=conversation.summary.id if conversation.summary else None,
         facts_collected=conversation.facts_collected,
-        analysis_done=conversation.reasoning_done,
+        reasoning_done=conversation.reasoning_done,
         summary_generated=conversation.summary_generated,
         who=conversation.who,
         what=conversation.what,
