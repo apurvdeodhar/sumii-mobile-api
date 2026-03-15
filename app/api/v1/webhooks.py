@@ -143,7 +143,7 @@ async def lawyer_response_webhook(
         user_id=webhook_data.user_id,
         type=NotificationType.LAWYER_RESPONSE.value,
         title="Anwalt hat geantwortet",
-        message=f"Ihr Anwalt {webhook_data.lawyer_name} hat auf Ihren Fall geantwortet.",
+        message=f"Dein Anwalt {webhook_data.lawyer_name} hat auf deinen Fall geantwortet.",
         data={
             "case_id": webhook_data.case_id,
             "conversation_id": str(webhook_data.conversation_id),
@@ -185,7 +185,7 @@ async def lawyer_response_webhook(
         push_sent = await push_service.send_to_user(
             user=user,
             title="Anwalt hat geantwortet",
-            body=f"{webhook_data.lawyer_name} hat auf Ihren Fall geantwortet.",
+            body=f"{webhook_data.lawyer_name} hat auf deinen Fall geantwortet.",
             data={
                 "type": "lawyer_response",
                 "case_id": webhook_data.case_id,

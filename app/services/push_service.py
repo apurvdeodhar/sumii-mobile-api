@@ -11,7 +11,7 @@ Usage:
     await push_service.send_notification(
         push_token="ExponentPushToken[xxx]",
         title="Zusammenfassung bereit",
-        body="Ihre rechtliche Zusammenfassung ist jetzt verfügbar",
+        body="Deine rechtliche Zusammenfassung ist jetzt verfügbar",
         data={"type": "summary_ready", "summary_id": "..."}
     )
 """

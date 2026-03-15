@@ -75,9 +75,9 @@ class EmailService:
         Returns:
             HTML email content
         """
-        tagline = "IHR INTELLIGENTER RECHTSASSISTENT" if language == "de" else "YOUR INTELLIGENT LEGAL ASSISTANT"
-        footer_greeting = "Mit freundlichen Grüßen," if language == "de" else "Best regards,"
-        footer_team = "Ihr sumii Team" if language == "de" else "Your sumii Team"
+        tagline = "DEIN INTELLIGENTER RECHTSASSISTENT" if language == "de" else "YOUR INTELLIGENT LEGAL ASSISTANT"
+        footer_greeting = "Viele Grüße," if language == "de" else "Best regards,"
+        footer_team = "Dein sumii Team" if language == "de" else "Your sumii Team"
 
         return f"""
         <!DOCTYPE html>
@@ -177,11 +177,11 @@ class EmailService:
         is_german = language == "de"
 
         if is_german:
-            subject = "Bestätigen Sie Ihre sumii E-Mail-Adresse"
+            subject = "Bestätige deine sumii E-Mail-Adresse"
             title = "E-Mail bestätigen"
-            message = "Bitte bestätigen Sie Ihre E-Mail-Adresse, um Ihr sumii-Konto zu aktivieren."
+            message = "Bitte bestätige deine E-Mail-Adresse, um dein sumii-Konto zu aktivieren."
             cta_text = "E-Mail bestätigen →"
-            fallback = "Falls der Button nicht funktioniert, kopieren Sie diesen Link:"
+            fallback = "Falls der Button nicht funktioniert, kopiere diesen Link:"
             expiry = "Dieser Link ist 24 Stunden gültig."
         else:
             subject = "Verify your sumii email address"
@@ -238,11 +238,11 @@ https://sumii.de • info@sumii.de
         if is_german:
             subject = "Passwort zurücksetzen - sumii"
             title = "Passwort zurücksetzen"
-            message = "Sie haben angefordert, Ihr Passwort zurückzusetzen. Klicken Sie auf den Button unten, um ein neues Passwort zu wählen."
+            message = "Du hast angefordert, dein Passwort zurückzusetzen. Klicke auf den Button unten, um ein neues Passwort zu wählen."
             cta_text = "Passwort zurücksetzen →"
-            fallback = "Falls der Button nicht funktioniert, kopieren Sie diesen Link:"
+            fallback = "Falls der Button nicht funktioniert, kopiere diesen Link:"
             expiry = "Dieser Link ist 1 Stunde gültig."
-            ignore = "Falls Sie dies nicht angefordert haben, können Sie diese E-Mail ignorieren."
+            ignore = "Falls du dies nicht angefordert hast, kannst du diese E-Mail ignorieren."
         else:
             subject = "Reset Password - sumii"
             title = "Reset Password"
@@ -296,19 +296,19 @@ https://sumii.de • info@sumii.de
             return
 
         is_german = language == "de"
-        tagline = "IHR INTELLIGENTER RECHTSASSISTENT" if is_german else "YOUR INTELLIGENT LEGAL ASSISTANT"
-        footer_greeting = "Mit freundlichen Grüßen," if is_german else "Best regards,"
-        footer_team = "Ihr sumii Team" if is_german else "Your sumii Team"
+        tagline = "DEIN INTELLIGENTER RECHTSASSISTENT" if is_german else "YOUR INTELLIGENT LEGAL ASSISTANT"
+        footer_greeting = "Viele Grüße," if is_german else "Best regards,"
+        footer_team = "Dein sumii Team" if is_german else "Your sumii Team"
 
         if is_german:
-            subject = "Ihr Bestätigungscode - sumii"
+            subject = "Dein Bestätigungscode - sumii"
             title = "Passwort zurücksetzen"
             message = (
-                "Verwenden Sie diesen Code in der sumii-App, um Ihr Passwort zurückzusetzen. "
+                "Verwende diesen Code in der sumii-App, um dein Passwort zurückzusetzen. "
                 "Der Code ist 10 Minuten gültig und kann nur einmal verwendet werden."
             )
-            code_label = "Ihr Code"
-            ignore = "Falls Sie dies nicht angefordert haben, können Sie diese E-Mail ignorieren."
+            code_label = "Dein Code"
+            ignore = "Falls du dies nicht angefordert hast, kannst du diese E-Mail ignorieren."
         else:
             subject = "Your verification code - sumii"
             title = "Reset Password"
@@ -423,19 +423,19 @@ https://sumii.de • info@sumii.de
             return
 
         is_german = language == "de"
-        tagline = "IHR INTELLIGENTER RECHTSASSISTENT" if is_german else "YOUR INTELLIGENT LEGAL ASSISTANT"
-        footer_greeting = "Mit freundlichen Grüßen," if is_german else "Best regards,"
-        footer_team = "Ihr sumii Team" if is_german else "Your sumii Team"
+        tagline = "DEIN INTELLIGENTER RECHTSASSISTENT" if is_german else "YOUR INTELLIGENT LEGAL ASSISTANT"
+        footer_greeting = "Viele Grüße," if is_german else "Best regards,"
+        footer_team = "Dein sumii Team" if is_german else "Your sumii Team"
 
         if is_german:
-            subject = "Ihr Bestätigungscode - sumii"
+            subject = "Dein Bestätigungscode - sumii"
             title = "E-Mail bestätigen"
             message = (
-                "Geben Sie diesen Code in der sumii-App ein, um Ihre E-Mail-Adresse zu bestätigen. "
+                "Gib diesen Code in der sumii-App ein, um deine E-Mail-Adresse zu bestätigen. "
                 "Der Code ist 10 Minuten gültig und kann nur einmal verwendet werden."
             )
-            code_label = "Ihr Code"
-            ignore = "Falls Sie sich nicht bei sumii registriert haben, können Sie diese E-Mail ignorieren."
+            code_label = "Dein Code"
+            ignore = "Falls du dich nicht bei sumii registriert hast, kannst du diese E-Mail ignorieren."
         else:
             subject = "Your verification code - sumii"
             title = "Verify your email"
@@ -546,31 +546,31 @@ https://sumii.de • info@sumii.de
             logger.warning(f"Email service disabled - lawyer response email not sent to {user_email}")
             return
 
-        subject = "Ihr Anwalt hat geantwortet"
+        subject = "Dein Anwalt hat geantwortet"
         body_html = f"""
         <html>
         <body>
-            <h2>Ihr Anwalt hat geantwortet</h2>
+            <h2>Dein Anwalt hat geantwortet</h2>
             <p>Hallo,</p>
-            <p>{lawyer_name} hat auf Ihren Fall geantwortet.</p>
+            <p>{lawyer_name} hat auf deinen Fall geantwortet.</p>
             <p><a href="{case_summary_url}">Antwort ansehen</a></p>
-            <p>Wenn der Link nicht funktioniert, kopieren Sie diese URL in Ihren Browser:</p>
+            <p>Wenn der Link nicht funktioniert, kopiere diese URL in deinen Browser:</p>
             <p>{case_summary_url}</p>
-            <p>Mit freundlichen Grüßen,<br>Ihr Sumii Team</p>
+            <p>Viele Grüße,<br>Dein Sumii Team</p>
         </body>
         </html>
         """
         body_text = f"""
-        Ihr Anwalt hat geantwortet
+        Dein Anwalt hat geantwortet
 
         Hallo,
 
-        {lawyer_name} hat auf Ihren Fall geantwortet.
+        {lawyer_name} hat auf deinen Fall geantwortet.
 
         Antwort ansehen: {case_summary_url}
 
-        Mit freundlichen Grüßen,
-        Ihr Sumii Team
+        Viele Grüße,
+        Dein Sumii Team
         """
 
         await self._send_email(user_email, subject, body_text, body_html)
@@ -753,12 +753,12 @@ https://sumii.de • info@sumii.de
             subject = "Neue Anmeldung bei sumii"
             title = "Neue Anmeldung erkannt"
             message = (
-                f"Es wurde eine neue Anmeldung in Ihrem sumii-Konto am {timestamp} erkannt. "
-                "Falls Sie sich nicht angemeldet haben, setzen Sie bitte umgehend Ihr Passwort zurück."
+                f"Es wurde eine neue Anmeldung in deinem sumii-Konto am {timestamp} erkannt. "
+                "Falls du dich nicht angemeldet hast, setze bitte umgehend dein Passwort zurück."
             )
             cta_text = "Passwort zurücksetzen →"
-            fallback = "Falls der Button nicht funktioniert, kopieren Sie diesen Link:"
-            expiry = "Wenn Sie sich gerade angemeldet haben, können Sie diese E-Mail ignorieren."
+            fallback = "Falls der Button nicht funktioniert, kopiere diesen Link:"
+            expiry = "Wenn du dich gerade angemeldet hast, kannst du diese E-Mail ignorieren."
         else:
             subject = "New login to sumii"
             title = "New login detected"

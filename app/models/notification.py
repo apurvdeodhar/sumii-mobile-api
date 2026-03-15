@@ -34,7 +34,7 @@ class Notification(Base):
         user_id: Foreign key to User who receives this notification
         type: Notification type (enum)
         title: Notification title (e.g., "Zusammenfassung bereit")
-        message: Notification message (e.g., "Ihre Rechtsübersicht ist verfügbar")
+        message: Notification message (e.g., "Deine Rechtsübersicht ist verfügbar")
         data: Extra data in JSONB (conversation_id, summary_id, lawyer_id, etc.)
         read: Whether notification has been read (default: False)
         created_at: When notification was created
