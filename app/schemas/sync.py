@@ -13,6 +13,24 @@ from app.schemas.summary import SummaryResponse
 from app.schemas.thinking_steps import ThinkingStepsResponse
 
 
+class UserProfileSyncResponse(BaseModel):
+    """User profile fields included in sync response"""
+
+    id: str
+    email: str
+    nickname: str | None = None
+    first_name: str | None = None
+    last_name: str | None = None
+    phone: str | None = None
+    address_street: str | None = None
+    address_city: str | None = None
+    address_postal_code: str | None = None
+    language: str | None = None
+    legal_insurance: bool | None = None
+    insurance_company: str | None = None
+    insurance_number: str | None = None
+
+
 class SyncRequest(BaseModel):
     """Sync request schema - client sends last sync timestamp"""
 
@@ -42,6 +60,9 @@ class SyncResponse(BaseModel):
     notifications: list[NotificationResponse] = []
     lawyer_connections: list[LawyerConnectionResponse] = []
     thinking_steps: list[ThinkingStepsResponse] = []
+
+    # User profile (always included — serves as persistent profile source of truth)
+    user_profile: UserProfileSyncResponse | None = None
 
     # Deleted record IDs
     deleted_ids: DeletedIds = Field(default_factory=DeletedIds)
