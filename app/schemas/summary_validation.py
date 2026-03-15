@@ -44,34 +44,61 @@ def build_user_profile_context(user: User) -> str:
     used both when prepending profile data to the first WS message and when
     building conversation context in SummaryService.
 
+    Missing fields are flagged explicitly so the LLM knows to ask for them
+    during the interview — no nickname fallback.
+
     Args:
         user: User model with profile fields
 
     Returns:
-        Formatted profile text block, or empty string if no profile data.
+        Formatted profile text block with FEHLENDE DATEN section, or empty string if no profile data.
     """
     parts: list[str] = []
+    missing: list[str] = []
+
     if user.full_name:
         parts.append(f"Name: {user.full_name}")
+    else:
+        missing.append("Name")
+
     if user.email:
         parts.append(f"E-Mail: {user.email}")
+
     if user.phone:
         parts.append(f"Telefon: {user.phone}")
-    address = _format_address(user)
-    if address:
-        parts.append(f"Adresse: {address}")
+    else:
+        missing.append("Telefonnummer")
+
+    # Address fields
+    address_parts = []
+    if user.address_street:
+        address_parts.append(user.address_street)
+    if user.address_postal_code:
+        address_parts.append(user.address_postal_code)
+    if user.address_city:
+        address_parts.append(user.address_city)
+    if address_parts:
+        parts.append(f"Adresse: {', '.join(address_parts)}")
+    else:
+        missing.append("Adresse")
+
     if user.legal_insurance is not None:
         parts.append(f"Rechtsschutzversicherung: {'Ja' if user.legal_insurance else 'Nein'}")
         if user.legal_insurance:
             if user.insurance_company:
-                parts.append(f"Versicherungsgesellschaft: {user.insurance_company}")
+                parts.append(f"Versicherung: {user.insurance_company}")
             if user.insurance_number:
                 parts.append(f"Versicherungsnummer: {user.insurance_number}")
+    else:
+        missing.append("Rechtsschutzversicherung")
 
     if not parts:
         return ""
 
-    return "--- MANDANTENPROFIL (Client Profile) ---\n" + "\n".join(parts) + "\n--- ENDE MANDANTENPROFIL ---\n\n"
+    context = "MANDANTENPROFIL:\n" + "\n".join(parts)
+    if missing:
+        context += "\n\nFEHLENDE DATEN (bitte im Gespräch erfragen):\n" + ", ".join(missing)
+    return context
 
 
 def build_user_profile_context_lines(user: User) -> list[str]:
@@ -80,24 +107,53 @@ def build_user_profile_context_lines(user: User) -> list[str]:
     Unlike ``build_user_profile_context`` (which returns a single delimited
     block), this returns bare lines without the MANDANTENPROFIL wrapper — suited
     for the summary service context builder.
+
+    Missing fields are flagged so the LLM knows to ask for them — no nickname fallback.
     """
     lines: list[str] = []
+    missing: list[str] = []
+
     if user.full_name:
         lines.append(f"Name: {user.full_name}")
+    else:
+        missing.append("Name")
+
     if user.email:
         lines.append(f"E-Mail: {user.email}")
+
     if user.phone:
         lines.append(f"Telefon: {user.phone}")
-    address = _format_address(user)
-    if address:
-        lines.append(f"Adresse: {address}")
+    else:
+        missing.append("Telefonnummer")
+
+    # Address fields
+    address_parts = []
+    if user.address_street:
+        address_parts.append(user.address_street)
+    if user.address_postal_code:
+        address_parts.append(user.address_postal_code)
+    if user.address_city:
+        address_parts.append(user.address_city)
+    if address_parts:
+        lines.append(f"Adresse: {', '.join(address_parts)}")
+    else:
+        missing.append("Adresse")
+
     if user.legal_insurance is not None:
         lines.append(f"Rechtsschutzversicherung: {'Ja' if user.legal_insurance else 'Nein'}")
         if user.legal_insurance:
             if user.insurance_company:
-                lines.append(f"Versicherungsgesellschaft: {user.insurance_company}")
+                lines.append(f"Versicherung: {user.insurance_company}")
             if user.insurance_number:
                 lines.append(f"Versicherungsnummer: {user.insurance_number}")
+    else:
+        missing.append("Rechtsschutzversicherung")
+
+    if missing:
+        lines.append("")
+        lines.append("FEHLENDE DATEN (bitte im Gespräch erfragen):")
+        lines.append(", ".join(missing))
+
     return lines
 
 
@@ -254,7 +310,9 @@ def _strip_metadata_from_markdown(markdown: str) -> str:
     return "\n".join(result).rstrip()
 
 
-def validate_and_enrich_summary(raw_args: dict, user: User | None = None) -> SummaryData:
+def validate_and_enrich_summary(
+    raw_args: dict, user: User | None = None, declined_fields: list[str] | None = None
+) -> SummaryData:
     """Validate summary function call output and enrich with user profile data.
 
     Three-layer enforcement:
@@ -266,6 +324,7 @@ def validate_and_enrich_summary(raw_args: dict, user: User | None = None) -> Sum
     Args:
         raw_args: Raw JSON dict from generate_summary function call arguments
         user: Optional User model for auto-filling missing profile fields
+        declined_fields: Fields the user explicitly refused to provide (not warned as missing)
 
     Returns:
         SummaryData: Validated and enriched summary data
@@ -311,7 +370,10 @@ def validate_and_enrich_summary(raw_args: dict, user: User | None = None) -> Sum
     if summary.markdown_content:
         summary.markdown_content = _strip_metadata_from_markdown(summary.markdown_content)
 
-    # Log warnings for critical missing fields
+    # Build declined set for suppressing warnings on user-refused fields
+    declined = set(declined_fields or [])
+
+    # Log warnings for critical missing fields (suppress if user explicitly declined)
     if not summary.markdown_content:
         logger.warning("[SUMMARY_VALIDATION] markdown_content is empty")
     if not summary.claimant.name:
@@ -320,15 +382,15 @@ def validate_and_enrich_summary(raw_args: dict, user: User | None = None) -> Sum
         logger.warning("[SUMMARY_VALIDATION] factual_narrative.claimant_goal is empty")
     if not summary.factual_narrative.chronological_timeline:
         logger.warning("[SUMMARY_VALIDATION] chronological_timeline is empty")
-    if not summary.factual_narrative.prior_legal_steps:
+    if not summary.factual_narrative.prior_legal_steps and "prior_legal_steps" not in declined:
         logger.warning("[SUMMARY_VALIDATION] factual_narrative.prior_legal_steps is empty")
-    if not summary.factual_narrative.witnesses:
+    if not summary.factual_narrative.witnesses and "witnesses" not in declined:
         logger.warning("[SUMMARY_VALIDATION] factual_narrative.witnesses is empty")
     if not summary.factual_narrative.jurisdiction:
         logger.warning("[SUMMARY_VALIDATION] factual_narrative.jurisdiction is empty")
-    if not summary.metadata.deadline_info:
+    if not summary.metadata.deadline_info and "deadline_info" not in declined:
         logger.warning("[SUMMARY_VALIDATION] metadata.deadline_info is empty")
-    if not summary.financial_info.claim_value_eur:
+    if not summary.financial_info.claim_value_eur and "financial_claim_value" not in declined:
         logger.warning("[SUMMARY_VALIDATION] financial_info.claim_value_eur is empty")
 
     if auto_filled:
