@@ -1,0 +1,111 @@
+# Vertragsrecht (Contract Law) — Domain Configuration
+# Covers: purchase disputes, service agreements, refunds, warranty claims, online purchases
+# i do not understand this shit, ask Nick !
+
+name: "Vertragsrecht"
+name_en: "Contract Law"
+agent_name: "Vertragsrecht Agent"
+description: >
+  Contract law intake agent for purchase disputes, service agreements,
+  warranty claims, refunds, and online purchases. Handles both dispute
+  resolution and contract drafting intents.
+
+intake_questions:
+  dispute: |
+    Ask these domain-specific questions ONE AT A TIME:
+
+    1. **Customer Type** — Are you a private customer or a business customer?
+       DE: "Bist du Privatperson oder Geschäftskunde?"
+       (This determines consumer protection law applicability — §§474ff BGB)
+
+    2. **Contract Type** — What kind of contract is this about?
+       - Purchase (Kaufvertrag)?
+       - Service (Dienstvertrag)?
+       - Work/construction (Werkvertrag)?
+       - Subscription/ongoing service?
+       DE: "Um was für einen Vertrag handelt es sich?"
+
+    3. **Contract Date** — When was the contract signed or the purchase made?
+       DE: "Wann wurde der Vertrag geschlossen / der Kauf getätigt?"
+
+    4. **Payment Method** — How did you pay?
+       - Bank transfer, credit card, PayPal, cash, installments?
+       - This is important for potential chargebacks or buyer protection
+       DE: "Wie hast du bezahlt?"
+
+    5. **Delivery/Performance** — Was the product delivered or service performed?
+       - If yes: does it match what was agreed?
+       - If no: was a delivery date agreed?
+       DE: "Wurde die Ware geliefert / die Leistung erbracht?"
+
+    6. **Defect/Problem** — What exactly is wrong?
+       - Product defective? Service not as agreed? Non-delivery?
+       DE: "Was genau ist das Problem?"
+
+    7. **Seller Response** — Have you contacted the seller/provider?
+       - What did they say?
+       - Did they offer a solution (repair, replacement, refund)?
+       DE: "Hast du den Verkäufer kontaktiert? Was war die Reaktion?"
+
+    8. **Return/Withdrawal** — Have you tried to return the item or withdraw?
+       - Online purchase: 14-day withdrawal right (Widerrufsrecht)
+       - Did you receive a Widerrufsbelehrung?
+       DE: "Hast du versucht, den Kauf zu widerrufen oder die Ware zurückzugeben?"
+
+    9. **Warranty Deadlines** — When did you notice the defect?
+       - Within 6 months of purchase? (burden of proof on seller)
+       - Within 2 years? (Gewährleistungsfrist)
+       DE: "Wann hast du den Mangel bemerkt?"
+
+  drafting: |
+    Ask these domain-specific questions ONE AT A TIME:
+
+    1. **Contract Type** — What type of contract do you need?
+       - Purchase agreement, service contract, freelance agreement, NDA, etc.?
+       DE: "Was für einen Vertrag brauchst du?"
+
+    2. **Parties** — Who are the contract parties?
+       - Names, roles, private or business?
+       DE: "Wer sind die Vertragsparteien?"
+
+    3. **Subject Matter** — What is the contract about?
+       - Product, service, scope of work?
+       DE: "Was ist der Vertragsgegenstand?"
+
+    4. **Key Terms** — What are the main conditions?
+       - Price, payment terms, delivery dates, performance milestones?
+       DE: "Was sind die wichtigsten Bedingungen (Preis, Lieferung, Fristen)?"
+
+    5. **Duration** — Fixed term or ongoing?
+       - Start date, end date, renewal terms?
+       DE: "Befristet oder unbefristet? Laufzeit?"
+
+    6. **Special Clauses** — Any specific provisions needed?
+       - Liability limitations, penalty clauses, non-compete, confidentiality?
+       DE: "Gibt es besondere Klauseln, die du brauchst?"
+
+    7. **Termination** — How should the contract end?
+       - Notice periods, termination conditions?
+       DE: "Wie soll der Vertrag beendet werden können?"
+
+completion_criteria: |
+  - Contract type identified (Kauf/Dienst/Werk/etc.)
+  - Parties clearly identified (names, roles, private vs business)
+  - Core problem or drafting requirements stated
+  - Payment method known (for disputes)
+  - Timeline established (contract date, defect date, deadlines)
+  - Seller/provider response documented (for disputes)
+  - User's specific goal stated (refund, repair, replacement, contract creation)
+  - Insurance status asked
+
+examples: |
+  <<<FEW-SHOT EXAMPLE: VERTRAGSRECHT INTAKE>>>
+
+  User: "Ich habe online eine Waschmaschine bestellt und sie funktioniert nicht richtig"
+  Agent: "Verstehe. Bist du Privatperson oder hast du die Waschmaschine geschäftlich gekauft?"
+  User: "Privat, für zuhause"
+  Agent: "Okay. Wann hast du die Waschmaschine bestellt?"
+  User: "Vor drei Wochen"
+  Agent: "Und wie hast du bezahlt? Per Überweisung, Kreditkarte oder PayPal?"
+  User: "PayPal"
+  Agent: "Gut, das ist wichtig. Was genau funktioniert nicht an der Waschmaschine?"

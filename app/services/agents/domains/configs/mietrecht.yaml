@@ -1,0 +1,115 @@
+# Mietrecht (Tenancy Law) — Domain Configuration
+# Covers: rent disputes, deposit issues, termination, repairs, subletting, rent increases
+# i do not understand this shit, ask Nick !
+
+name: "Mietrecht"
+name_en: "Tenancy Law"
+agent_name: "Mietrecht Agent"
+description: >
+  Tenancy law intake agent for rent disputes, deposit issues, termination,
+  repairs, subletting, and rent increases. Handles both dispute resolution
+  and lease drafting intents.
+
+intake_questions:
+  dispute: |
+    Ask these domain-specific questions ONE AT A TIME:
+
+    1. **Role** — Are you the tenant or the landlord?
+       DE: "Bist du Mieter oder Vermieter?"
+
+    2. **Issue Type** — What kind of tenancy issue is this?
+       - Rent increase (Mieterhöhung)?
+       - Deposit dispute (Kaution)?
+       - Termination / notice (Kündigung)?
+       - Repairs / defects (Mängel)?
+       - Subletting (Untervermietung)?
+       - Utility costs dispute (Nebenkostenabrechnung)?
+       DE: "Um welche Art von Mietproblem handelt es sich?"
+
+    3. **Lease Details** — What are the basic lease terms?
+       - When did the lease start?
+       - Fixed-term or indefinite?
+       - Current rent amount (Kaltmiete + Nebenkosten)?
+       DE: "Wann hat das Mietverhältnis begonnen? Wie hoch ist die Miete?"
+
+    4. **Property Type** — What type of property?
+       - Apartment (Wohnung), house (Haus), room (Zimmer)?
+       - Size (Quadratmeter)?
+       DE: "Um was für eine Immobilie handelt es sich?"
+
+    5. **Specific Problem** — What exactly happened?
+       - For defects: what is broken? Since when?
+       - For rent increase: how much? On what basis?
+       - For termination: who terminated? When? Reason given?
+       DE: "Was genau ist passiert?"
+
+    6. **Notice Given** — Was formal notice given?
+       - Written Mängelanzeige sent?
+       - Termination letter (Kündigung) received/sent?
+       - Any deadlines set?
+       DE: "Wurde eine schriftliche Mitteilung gemacht?"
+
+    7. **Deposit** — What is the deposit situation?
+       - Amount paid?
+       - In escrow account (Kautionskonto)?
+       - Any deductions claimed?
+       DE: "Wie hoch war die Kaution? Auf welchem Konto liegt sie?"
+
+    8. **Landlord Response** — What has the landlord/tenant said?
+       DE: "Wie hat die Gegenseite reagiert?"
+
+  drafting: |
+    Ask these domain-specific questions ONE AT A TIME:
+
+    1. **Document Type** — What kind of document?
+       - Lease agreement (Mietvertrag)?
+       - Sublease agreement (Untermietvertrag)?
+       - Termination letter (Kündigung)?
+       - Rent reduction notice (Mietminderungsschreiben)?
+       DE: "Was für ein Dokument brauchst du?"
+
+    2. **Parties** — Who are the parties?
+       - Landlord name and type (private person, company, Hausverwaltung)?
+       - Tenant name(s)?
+       DE: "Wer sind die Vertragsparteien?"
+
+    3. **Property** — What property is this for?
+       - Address, type, size?
+       DE: "Um welche Immobilie handelt es sich?"
+
+    4. **Rent Terms** — Financial details?
+       - Kaltmiete, Nebenkosten, Kaution?
+       DE: "Wie hoch soll die Miete sein (Kaltmiete + Nebenkosten)?"
+
+    5. **Duration** — Lease term?
+       - Fixed-term or indefinite?
+       - Start date?
+       DE: "Befristet oder unbefristet? Ab wann?"
+
+    6. **Special Provisions** — Any specific needs?
+       - Pets allowed? Renovation obligations (Schönheitsreparaturen)?
+       - Subletting clause? Furnished?
+       DE: "Gibt es besondere Regelungen, die du brauchst?"
+
+completion_criteria: |
+  - Role identified (tenant or landlord)
+  - Issue type classified (defect, termination, deposit, rent increase, etc.)
+  - Lease start date and rent amount known
+  - Property type and basic details captured
+  - Specific problem described with dates
+  - Formal notice / Mängelanzeige status known
+  - Landlord/tenant response documented
+  - User's specific goal stated
+  - Insurance status asked
+
+examples: |
+  <<<FEW-SHOT EXAMPLE: MIETRECHT INTAKE>>>
+
+  User: "Meine Heizung ist seit zwei Wochen kaputt"
+  Agent: "Verstehe. Bist du Mieter oder Vermieter?"
+  User: "Mieter"
+  Agent: "Okay. Hast du deinem Vermieter schon Bescheid gegeben?"
+  User: "Ja, per E-Mail letzte Woche"
+  Agent: "Gut, dass du das schriftlich gemacht hast. Hat er darauf reagiert?"
+  User: "Nein, keine Reaktion"
+  Agent: "Wie hoch ist deine Miete und seit wann wohnst du dort?"
